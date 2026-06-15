@@ -1,0 +1,12 @@
+# Normalize line endings: LF in the repo for text, with platform-specific exceptions.
+* text=auto eol=lf
+*.bat text eol=crlf
+gradlew text eol=lf
+
+# Treat these as binary (never normalize/diff).
+*.jar binary
+*.png binary
+*.jpg binary
+*.webp binary
+*.keystore binary
+*.apk binary

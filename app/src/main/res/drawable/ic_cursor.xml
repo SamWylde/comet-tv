@@ -1,0 +1,12 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Classic arrow pointer; hotspot (tip) at the top-left (4,2). White fill, dark edge. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:strokeColor="#222222"
+        android:strokeWidth="0.8"
+        android:pathData="M4,2 L4,21 L9.5,15.5 L13,22.5 L15.8,21.2 L12.3,14.5 L19,14.5 Z" />
+</vector>

@@ -1,0 +1,6 @@
+<resources>
+    <color name="toolbar_bg">#1C1B1F</color>
+    <color name="url_bar_bg">#33FFFFFF</color>
+    <color name="ic_launcher_background">#0B1020</color>
+    <color name="accent">#4FC3F7</color>
+</resources>

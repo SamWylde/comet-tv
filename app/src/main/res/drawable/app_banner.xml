@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <!-- Background -->
+    <path
+        android:fillColor="#0B1020"
+        android:pathData="M0,0 H320 V180 H0 Z" />
+    <!-- Comet tail -->
+    <path
+        android:fillColor="#4FC3F7"
+        android:pathData="M40,118 C78,96 104,86 130,64 L150,84 C124,108 86,118 40,118 Z" />
+    <!-- Comet head -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M150,58 m-22,0 a22,22 0 1,0 44,0 a22,22 0 1,0 -44,0" />
+    <!-- Wordmark underline accent -->
+    <path
+        android:fillColor="#4FC3F7"
+        android:pathData="M196,150 H288 V156 H196 Z" />
+</vector>
