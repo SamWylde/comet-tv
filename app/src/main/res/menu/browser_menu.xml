@@ -19,6 +19,15 @@
         android:id="@+id/menu_home"
         android:title="@string/menu_home" />
     <item
+        android:id="@+id/menu_voice"
+        android:title="@string/menu_voice" />
+    <item
+        android:id="@+id/menu_zoom_in"
+        android:title="@string/menu_zoom_in" />
+    <item
+        android:id="@+id/menu_zoom_out"
+        android:title="@string/menu_zoom_out" />
+    <item
         android:id="@+id/menu_update"
         android:title="@string/menu_update" />
     <item

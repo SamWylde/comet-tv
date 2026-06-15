@@ -29,6 +29,16 @@
     <string name="menu_bookmarks">Bookmarks</string>
     <string name="menu_history">History</string>
     <string name="menu_home">Home</string>
+    <string name="menu_voice">Voice search</string>
+    <string name="menu_zoom_in">Zoom in</string>
+    <string name="menu_zoom_out">Zoom out</string>
+    <string name="voice_prompt">Speak to search</string>
+    <string name="voice_unavailable">Voice search unavailable</string>
+    <string name="permission_title">Permission request</string>
+    <string name="permission_message">This site is requesting: %s</string>
+    <string name="permission_location">%s wants your location</string>
+    <string name="permission_allow">Allow</string>
+    <string name="permission_deny">Deny</string>
     <string name="settings_search">Search engine</string>
     <string name="bookmarks_empty">No bookmarks yet</string>
     <string name="history_empty">No history yet</string>

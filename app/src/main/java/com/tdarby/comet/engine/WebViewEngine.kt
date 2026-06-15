@@ -37,6 +37,8 @@ class WebViewEngine(
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             // Multiple-window support is on so onCreateWindow (PopupGuard) can intercept.
             setSupportMultipleWindows(true)
+            // Allow programmatic zoom (driven from the menu/remote) but no on-screen pinch widgets.
+            setSupportZoom(true)
             builtInZoomControls = false
             displayZoomControls = false
         }
@@ -63,6 +65,23 @@ class WebViewEngine(
     override fun reload() = webView.reload()
     override fun stop() = webView.stopLoading()
     override fun verticalScrollOffset(): Int = webView.scrollY
+
+    override fun zoomIn() { webView.zoomIn() }
+    override fun zoomOut() { webView.zoomOut() }
+
+    override fun mediaAction(action: MediaAction) {
+        val op = when (action) {
+            MediaAction.PLAY_PAUSE -> "if(v.paused)v.play();else v.pause();"
+            MediaAction.STOP -> "v.pause();try{v.currentTime=0;}catch(e){}"
+            MediaAction.REWIND -> "try{v.currentTime=Math.max(0,v.currentTime-10);}catch(e){}"
+            MediaAction.FORWARD -> "try{v.currentTime=v.currentTime+10;}catch(e){}"
+        }
+        webView.evaluateJavascript(
+            "(function(){var m=Array.from(document.querySelectorAll('video,audio'));" +
+                "var v=m.find(function(e){return !e.paused&&!e.ended;})||m[0];if(!v)return;$op})();",
+            null
+        )
+    }
 
     override fun setDesktopMode(enabled: Boolean) {
         webView.settings.userAgentString = if (enabled) DESKTOP_UA else null

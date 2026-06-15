@@ -1,9 +1,17 @@
 package com.tdarby.comet.engine
 
+import android.net.Uri
 import android.view.View
+import android.webkit.GeolocationPermissions
+import android.webkit.PermissionRequest
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
 
 /** Which rendering engine backs a tab. Selectable in Settings; `full` flavor adds GECKO. */
 enum class EngineType { WEBVIEW, GECKO }
+
+/** Remote media-key actions routed into the page's <video>/<audio>. */
+enum class MediaAction { PLAY_PAUSE, STOP, REWIND, FORWARD }
 
 /**
  * Events an engine raises back to the UI. All methods have no-op defaults so callers only
@@ -32,6 +40,19 @@ interface EngineCallbacks {
 
     /** A file download was requested by the page. */
     fun onDownloadRequested(url: String, userAgent: String?, mimeType: String?) {}
+
+    /** Page opened an `<input type=file>`. Return true if a picker was launched. */
+    fun onShowFileChooser(
+        filePathCallback: ValueCallback<Array<Uri>>,
+        params: WebChromeClient.FileChooserParams
+    ): Boolean = false
+
+    /** Page requested a runtime web permission (camera/microphone/...). Default: deny. */
+    fun onPermissionRequest(request: PermissionRequest) = request.deny()
+
+    /** Page requested the device location. Default: deny. */
+    fun onGeolocationPrompt(origin: String, callback: GeolocationPermissions.Callback) =
+        callback.invoke(origin, false, false)
 }
 
 /**
@@ -55,6 +76,13 @@ interface BrowserEngine {
 
     /** Current vertical scroll position of the page (0 = top). Used to detect "at top of page". */
     fun verticalScrollOffset(): Int = 0
+
+    /** Pinch-free zoom for a 10-foot UI (driven from the menu / remote). */
+    fun zoomIn() {}
+    fun zoomOut() {}
+
+    /** Route a remote media key into the page's media elements. */
+    fun mediaAction(action: MediaAction) {}
 
     /** Switch between mobile/TV and desktop user-agent + viewport. */
     fun setDesktopMode(enabled: Boolean)

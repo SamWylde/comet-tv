@@ -135,5 +135,6 @@ Signing reads `keystore.properties` (gitignored). Outputs:
 - [x] M6 — bookmarks, history, downloads, search engines, overflow menu, home, desktop-UA toggle
 - [x] M7 — signed release (R8 + ABI splits), release manifest + in-app updater (SHA-256 verified)
 
-> Multi-tab and a graphical home-tile grid are the main not-yet-implemented extras; the browser is
-> currently single-tab. Everything above is implemented and builds.
+> Multi-tab browsing **is** implemented (open/close/switch tabs via the overflow menu and the tab
+> strip). Tabs are kept in memory only — they are **not yet restored across app restarts** — and
+> there is no graphical home-tile grid. Everything above is implemented and builds.
