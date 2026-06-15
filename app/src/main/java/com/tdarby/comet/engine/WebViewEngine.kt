@@ -85,6 +85,8 @@ class WebViewEngine(
         webView.evaluateJavascript(js, null)
     }
 
+    // @Suppress("Recycle"): the stream is closed via out.use {} below; lint can't track it across `?: return`.
+    @Suppress("Recycle")
     private fun saveBlob(dataUrl: String, mime: String?, srcUrl: String) {
         runCatching {
             val comma = dataUrl.indexOf(',')
@@ -99,7 +101,8 @@ class WebViewEngine(
                 }
                 val resolver = ctx.contentResolver
                 val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return
-                resolver.openOutputStream(uri)?.use { it.write(bytes) }
+                val out = resolver.openOutputStream(uri) ?: return
+                out.use { it.write(bytes) }
                 values.clear(); values.put(MediaStore.Downloads.IS_PENDING, 0)
                 resolver.update(uri, values, null, null)
             } else {

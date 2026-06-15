@@ -2,6 +2,7 @@ package com.tdarby.comet.util
 
 import android.net.Uri
 import android.util.Patterns
+import androidx.core.net.toUri
 
 /** Turns omnibox text into either a URL to load or a search query against [searchTemplate]. */
 object UrlUtils {
@@ -24,5 +25,5 @@ object UrlUtils {
         return searchTemplate.replace("%s", Uri.encode(text))
     }
 
-    fun hostOf(url: String?): String? = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
+    fun hostOf(url: String?): String? = url?.let { runCatching { it.toUri().host }.getOrNull() }
 }
