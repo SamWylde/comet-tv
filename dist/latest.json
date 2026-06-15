@@ -3,7 +3,7 @@
     "versionCode": 5,
     "versionName": "1.0.4",
     "apkUrl": "https://github.com/SamWylde/comet-tv/releases/latest/download/app-webview-universal-release.apk",
-    "sha256": "ef95cf78c22325eafae764d671e8bd1708c1981917e67ecd85cc281c133e9ac3",
+    "sha256": "831cc0d3224edbaa5f5dfa35111ba42723654def6d9feea9424130b97fe3f10f",
     "notes": "Big update: open links from other apps, tabs restored across restarts, file uploads, camera/mic/location prompts, zoom, remote media keys, voice search, SSL/login prompts, external-app links, long-press link/image menu, gamepad cursor, configurable cursor speed + direct D-pad mode, smoother scrolling, and an in-app downloads screen. GeckoView engine removed (slimmer, single WebView engine).",
     "required": false
   }
