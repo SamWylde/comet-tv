@@ -13,12 +13,12 @@ val keystoreProps = Properties().apply {
 
 android {
     namespace = "com.tdarby.comet"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.tdarby.comet"
         minSdk = 28
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 5
         versionName = "1.0.4"
     }
@@ -68,6 +68,17 @@ android {
         viewBinding = true
         buildConfig = true
     }
+
+    lint {
+        // The newest androidx releases require AGP 9.1+ (we're on 8.9); upgrading dependencies is
+        // gated on that major AGP bump, so don't flag the available-but-incompatible versions.
+        disable += "GradleDependency"
+        // The adaptive icon must stay in mipmap-anydpi-v26 for AAPT (moving it to mipmap-anydpi
+        // breaks resource linking), so the "v26 is unnecessary" hint isn't actionable.
+        disable += "ObsoleteSdkInt"
+        warningsAsErrors = false
+        abortOnError = true
+    }
 }
 
 kotlin {
@@ -89,8 +100,11 @@ val copyLegacyUniversalApk = tasks.register<Copy>("copyLegacyUniversalApk") {
 tasks.matching { it.name == "assembleRelease" }.configureEach { finalizedBy(copyLegacyUniversalApk) }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.13.1")
+    // Pinned to the newest versions compatible with the current Android Gradle plugin (8.9). The
+    // absolute-latest androidx releases require AGP 9.1+; see the `lint { disable GradleDependency }`
+    // note below — bumping these is gated on an AGP major upgrade.
     implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.core:core-ktx:1.13.1")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.activity:activity-ktx:1.9.3")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")

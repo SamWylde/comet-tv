@@ -786,8 +786,19 @@ class BrowserActivity : AppCompatActivity() {
                 .setTitle(R.string.permission_title)
                 .setMessage(getString(R.string.permission_location, origin))
                 .setPositiveButton(R.string.permission_allow) { _, _ ->
-                    ensureOsPermissions(listOf(Manifest.permission.ACCESS_FINE_LOCATION)) { ok ->
-                        callback.invoke(origin, ok, false)
+                    ensureOsPermissions(
+                        listOf(
+                            Manifest.permission.ACCESS_FINE_LOCATION,
+                            Manifest.permission.ACCESS_COARSE_LOCATION
+                        )
+                    ) {
+                        // Users can grant only COARSE on Android 12+; either is enough for the page.
+                        val granted = ContextCompat.checkSelfPermission(
+                            this@BrowserActivity, Manifest.permission.ACCESS_COARSE_LOCATION
+                        ) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(
+                            this@BrowserActivity, Manifest.permission.ACCESS_FINE_LOCATION
+                        ) == PackageManager.PERMISSION_GRANTED
+                        callback.invoke(origin, granted, false)
                     }
                 }
                 .setNegativeButton(R.string.permission_deny) { _, _ -> callback.invoke(origin, false, false) }

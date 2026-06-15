@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -12,7 +13,9 @@
     <!-- Granted on demand when a site requests camera/mic/location (rare on TV, hence not required). -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- FINE requires COARSE too (Android 12+); users may grant only COARSE. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!-- TV boxes have no touchscreen and (usually) no camera/mic/GPS. -->
     <uses-feature
@@ -28,12 +31,17 @@
         android:name="android.hardware.location"
         android:required="false" />
     <uses-feature
+        android:name="android.hardware.location.gps"
+        android:required="false" />
+    <uses-feature
         android:name="android.software.leanback"
         android:required="true" />
 
     <application
         android:name=".CometApp"
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:banner="@drawable/app_banner"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -48,7 +56,8 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:screenOrientation="landscape"
-            android:windowSoftInputMode="stateAlwaysHidden|adjustResize">
+            android:windowSoftInputMode="stateAlwaysHidden|adjustResize"
+            tools:ignore="DiscouragedApi"><!-- landscape is correct for a 10-foot TV UI -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
