@@ -611,7 +611,7 @@ class BrowserActivity : AppCompatActivity() {
                     KeyEvent.ACTION_DOWN ->
                         if (event.repeatCount == 1) { // first auto-repeat ≈ long press
                             centerLongHandled = true
-                            setCursor(false)
+                            onCursorLongPress()
                         }
                     KeyEvent.ACTION_UP ->
                         if (centerLongHandled) centerLongHandled = false else cursor.click()
@@ -648,6 +648,39 @@ class BrowserActivity : AppCompatActivity() {
         KeyEvent.KEYCODE_MEDIA_REWIND -> MediaAction.REWIND
         KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> MediaAction.FORWARD
         else -> null
+    }
+
+    /** Long-press OK: show a context menu for a link/image under the cursor, else exit to toolbar. */
+    private fun onCursorLongPress() {
+        if (!tabManager.hasTabs) { setCursor(false); return }
+        engine.hitTestAt(cursor.cssX(), cursor.cssY()) { href, img, _ ->
+            runOnUiThread {
+                if (href == null && img == null) setCursor(false) else showLinkContextMenu(href, img)
+            }
+        }
+    }
+
+    private fun showLinkContextMenu(href: String?, img: String?) {
+        val actions = mutableListOf<Pair<String, () -> Unit>>()
+        if (href != null) {
+            actions += getString(R.string.ctx_open_new_tab) to { tabManager.newTab(href) }
+            actions += getString(R.string.ctx_copy_link) to { copyToClipboard(href) }
+        }
+        if (img != null) {
+            actions += getString(R.string.ctx_open_image) to { engine.loadUrl(img) }
+            actions += getString(R.string.ctx_download_image) to { enqueueDownload(img, null, null) }
+        }
+        if (actions.isEmpty()) { setCursor(false); return }
+        AlertDialog.Builder(this)
+            .setItems(actions.map { it.first }.toTypedArray()) { _, which -> actions[which].second() }
+            .setNegativeButton(R.string.action_close, null)
+            .show()
+    }
+
+    private fun copyToClipboard(text: String) {
+        val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("url", text))
+        toast(R.string.ctx_copied)
     }
 
     private fun launchVoiceSearch() {
