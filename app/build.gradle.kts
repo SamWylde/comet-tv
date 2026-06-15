@@ -22,8 +22,8 @@ android {
         applicationId = "com.tdarby.comet"
         minSdk = 28
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.0.2"
     }
 
     // Two engine builds: `webview` (slim, System WebView only) and `full` (also bundles
@@ -74,8 +74,11 @@ android {
         abi {
             isEnable = true
             reset()
-            include("arm64-v8a", "x86_64")
-            isUniversalApk = false
+            // armeabi-v7a covers 32-bit Android TV (e.g. Chromecast with Google TV HD); arm64-v8a
+            // for most TV boxes; x86_64 for the emulator. A universal APK is also emitted so a
+            // single download installs on any ABI (avoids "app not compatible" on sideload).
+            include("armeabi-v7a", "arm64-v8a", "x86_64")
+            isUniversalApk = true
         }
     }
 
