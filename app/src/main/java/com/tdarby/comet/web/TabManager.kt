@@ -218,6 +218,25 @@ class TabManager(
 
         override fun onExternalUrl(url: String): Boolean =
             if (isActive(tab)) ui.onExternalUrl(url) else false
+
+        // Defer to the next frame: don't destroy the dead WebView from inside its own callback.
+        override fun onRenderProcessGone() {
+            container.post { recreate(tab) }
+        }
+    }
+
+    /** Rebuild one tab's engine in place (after a renderer crash) and reload its last URL. */
+    private fun recreate(tab: Tab) {
+        if (tab !in tabs) return
+        val wasActive = isActive(tab)
+        val savedUrl = tab.url.ifBlank { homeUrl }
+        if (wasActive) detach(tab)
+        tab.engine.destroy()
+        tab.engine = create(wrap(tab))
+        init(tab.engine)
+        if (wasActive) attach(tab.engine)
+        tab.engine.loadUrl(savedUrl)
+        onChanged()
     }
 
     /** A persisted tab: just its URL and title (engine history/scroll is not snapshotted). */

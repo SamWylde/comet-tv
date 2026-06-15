@@ -17,8 +17,6 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // Mozilla Maven hosts GeckoView artifacts (used by the `full` flavor).
-        maven("https://maven.mozilla.org/maven2")
     }
 }
 

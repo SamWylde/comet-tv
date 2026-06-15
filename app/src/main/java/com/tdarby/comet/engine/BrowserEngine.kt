@@ -62,6 +62,9 @@ interface EngineCallbacks {
 
     /** A non-http(s) link (intent:/market:/tel:/mailto:/...). Return true if handled externally. */
     fun onExternalUrl(url: String): Boolean = false
+
+    /** The tab's renderer process died; the engine view is now unusable and must be rebuilt. */
+    fun onRenderProcessGone() {}
 }
 
 /**

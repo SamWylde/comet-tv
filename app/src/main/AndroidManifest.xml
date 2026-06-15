@@ -9,10 +9,23 @@
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
+    <!-- Granted on demand when a site requests camera/mic/location (rare on TV, hence not required). -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
-    <!-- TV boxes have no touchscreen and (usually) no camera/GPS. -->
+    <!-- TV boxes have no touchscreen and (usually) no camera/mic/GPS. -->
     <uses-feature
         android:name="android.hardware.touchscreen"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.location"
         android:required="false" />
     <uses-feature
         android:name="android.software.leanback"
