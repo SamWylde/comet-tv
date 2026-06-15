@@ -96,6 +96,9 @@ interface BrowserEngine {
     /** Route a remote media key into the page's media elements. */
     fun mediaAction(action: MediaAction) {}
 
+    /** Save a `blob:` download (which DownloadManager can't fetch) by reading it in-page. */
+    fun fetchBlob(url: String) {}
+
     /**
      * Resolve the link/image at a CSS-pixel point (the cursor) for a long-press context menu.
      * Returns (anchor href, image src, anchor text) via [result]; default finds nothing.

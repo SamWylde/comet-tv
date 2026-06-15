@@ -333,6 +333,11 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     private fun enqueueDownload(url: String, userAgent: String?, mimeType: String?) {
+        // DownloadManager can't fetch blob: URLs — read them in the page instead.
+        if (url.startsWith("blob:")) {
+            if (tabManager.hasTabs) engine.fetchBlob(url)
+            return
+        }
         runCatching {
             val fileName = URLUtil.guessFileName(url, null, mimeType)
             val request = DownloadManager.Request(url.toUri()).apply {
