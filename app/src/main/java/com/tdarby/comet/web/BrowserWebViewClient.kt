@@ -2,13 +2,16 @@ package com.tdarby.comet.web
 
 import android.graphics.Bitmap
 import android.net.http.SslError
+import android.os.Build
 import android.util.Log
 import android.webkit.HttpAuthHandler
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.SslErrorHandler
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.annotation.RequiresApi
 import com.tdarby.comet.adblock.AdBlocker
 import com.tdarby.comet.adblock.PopupGuard
 import com.tdarby.comet.engine.EngineCallbacks
@@ -102,6 +105,15 @@ class BrowserWebViewClient(
         realm: String?
     ) {
         callbacks.onHttpAuthRequest(handler, host, realm)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+        // Returning true tells the framework we handled it, so the app isn't killed. The dead
+        // WebView is unusable; ask the UI to rebuild this tab's engine.
+        Log.w(TAG, "Renderer gone (didCrash=${detail.didCrash()}); rebuilding tab")
+        callbacks.onRenderProcessGone()
+        return true
     }
 
     private fun notifyNav(view: WebView) {

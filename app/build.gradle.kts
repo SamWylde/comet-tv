@@ -76,6 +76,18 @@ kotlin {
     }
 }
 
+// After a release build, also emit the universal APK under the legacy filename the permanent
+// Downloader code (2453488) and the update manifest point at, so releases never break if a manual
+// copy is forgotten. A registered Copy task (vs. a doLast closure) keeps the configuration cache happy.
+// Output to a separate dir (not AGP's apk/release) to avoid overlapping-output task conflicts.
+val copyLegacyUniversalApk = tasks.register<Copy>("copyLegacyUniversalApk") {
+    dependsOn("packageRelease") // declare the producer of app-universal-release.apk
+    from(layout.buildDirectory.dir("outputs/apk/release")) { include("app-universal-release.apk") }
+    into(layout.buildDirectory.dir("outputs/apk-legacy"))
+    rename("app-universal-release.apk", "app-webview-universal-release.apk")
+}
+tasks.matching { it.name == "assembleRelease" }.configureEach { finalizedBy(copyLegacyUniversalApk) }
+
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")

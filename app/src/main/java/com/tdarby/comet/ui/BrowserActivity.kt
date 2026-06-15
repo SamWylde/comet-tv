@@ -1,7 +1,9 @@
 package com.tdarby.comet.ui
 
+import android.Manifest
 import android.app.DownloadManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.net.Uri
 import android.net.http.SslError
@@ -33,6 +35,7 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
+import androidx.core.content.ContextCompat
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
@@ -89,6 +92,26 @@ class BrowserActivity : AppCompatActivity() {
                 ?.takeIf { it.isNotBlank() } ?: return@registerForActivityResult
             engine.loadUrl(UrlUtils.toUrlOrSearch(spoken, searchTemplate))
         }
+
+    /** Completed when the OS runtime-permission prompt returns (for web permission requests). */
+    private var onOsPermissionResult: ((granted: Boolean) -> Unit)? = null
+
+    private val osPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+            val granted = result.isNotEmpty() && result.values.all { it }
+            onOsPermissionResult?.invoke(granted)
+            onOsPermissionResult = null
+        }
+
+    /** Ensure the app holds [perms] (request the missing ones), then report the outcome. */
+    private fun ensureOsPermissions(perms: List<String>, onResult: (Boolean) -> Unit) {
+        val missing = perms.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) { onResult(true); return }
+        onOsPermissionResult = onResult
+        osPermissionLauncher.launch(missing.toTypedArray())
+    }
 
     /** The active tab's engine. A getter keeps every call site engine-agnostic and tab-aware. */
     private val engine: BrowserEngine get() = tabManager.activeEngine
@@ -739,7 +762,20 @@ class BrowserActivity : AppCompatActivity() {
             AlertDialog.Builder(this@BrowserActivity)
                 .setTitle(R.string.permission_title)
                 .setMessage(getString(R.string.permission_message, request.resources.joinToString()))
-                .setPositiveButton(R.string.permission_allow) { _, _ -> request.grant(request.resources) }
+                .setPositiveButton(R.string.permission_allow) { _, _ ->
+                    // Grant to the page only after the matching Android runtime permission is held,
+                    // otherwise getUserMedia would "succeed" but produce nothing.
+                    val osPerms = request.resources.mapNotNull {
+                        when (it) {
+                            PermissionRequest.RESOURCE_VIDEO_CAPTURE -> Manifest.permission.CAMERA
+                            PermissionRequest.RESOURCE_AUDIO_CAPTURE -> Manifest.permission.RECORD_AUDIO
+                            else -> null
+                        }
+                    }
+                    ensureOsPermissions(osPerms) { ok ->
+                        if (ok) request.grant(request.resources) else request.deny()
+                    }
+                }
                 .setNegativeButton(R.string.permission_deny) { _, _ -> request.deny() }
                 .setOnCancelListener { request.deny() }
                 .show()
@@ -749,7 +785,11 @@ class BrowserActivity : AppCompatActivity() {
             AlertDialog.Builder(this@BrowserActivity)
                 .setTitle(R.string.permission_title)
                 .setMessage(getString(R.string.permission_location, origin))
-                .setPositiveButton(R.string.permission_allow) { _, _ -> callback.invoke(origin, true, false) }
+                .setPositiveButton(R.string.permission_allow) { _, _ ->
+                    ensureOsPermissions(listOf(Manifest.permission.ACCESS_FINE_LOCATION)) { ok ->
+                        callback.invoke(origin, ok, false)
+                    }
+                }
                 .setNegativeButton(R.string.permission_deny) { _, _ -> callback.invoke(origin, false, false) }
                 .setOnCancelListener { callback.invoke(origin, false, false) }
                 .show()

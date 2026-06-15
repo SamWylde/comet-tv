@@ -76,9 +76,11 @@ class WebViewEngine(
     }
 
     override fun fetchBlob(url: String) {
-        val js = "(function(){try{var x=new XMLHttpRequest();x.open('GET','$url',true);" +
+        // Embed the URL as a safely-escaped JS string literal (prevents script injection via the URL).
+        val u = org.json.JSONObject.quote(url)
+        val js = "(function(){try{var x=new XMLHttpRequest();x.open('GET',$u,true);" +
             "x.responseType='blob';x.onload=function(){var r=new FileReader();r.onloadend=function(){" +
-            "CometDownload.onBlob(r.result,x.getResponseHeader('content-type')||'','$url');};" +
+            "CometDownload.onBlob(r.result,x.getResponseHeader('content-type')||'',$u);};" +
             "r.readAsDataURL(x.response);};x.send();}catch(e){}})();"
         webView.evaluateJavascript(js, null)
     }

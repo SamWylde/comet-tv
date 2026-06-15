@@ -93,15 +93,14 @@ Signing reads `keystore.properties` (gitignored). Outputs:
 > reference it via `keystore.properties`, and never commit it. Rotate any dev cert before publishing.
 
 **Publish a new version (the Downloader code `2453488` stays the same forever):**
-1. Bump `versionCode`/`versionName` in `app/build.gradle.kts`, build, and create a GitHub Release —
-   **keep the asset filenames identical** (no version in the name). The permanent code `2453488` and
-   the updater manifest point at `app-webview-universal-release.apk`, so keep serving that exact name
-   (the simplest path: `cp app-universal-release.apk app-webview-universal-release.apk` before upload):
+1. Bump `versionCode`/`versionName` in `app/build.gradle.kts`, run `:app:assembleRelease`, and create
+   a GitHub Release — **keep the asset filenames identical** (no version in the name). The build
+   automatically emits the legacy-named universal APK at
+   `app/build/outputs/apk-legacy/app-webview-universal-release.apk` (the name the permanent code
+   `2453488` and the manifest point at), so no manual copy is needed:
    ```bash
-   cp app/build/outputs/apk/release/app-universal-release.apk \
-      app/build/outputs/apk/release/app-webview-universal-release.apk
    gh release create vX.Y.Z --latest \
-     app/build/outputs/apk/release/app-webview-universal-release.apk \
+     app/build/outputs/apk-legacy/app-webview-universal-release.apk \
      app/build/outputs/apk/release/app-armeabi-v7a-release.apk \
      app/build/outputs/apk/release/app-arm64-v8a-release.apk \
      app/build/outputs/apk/release/app-x86_64-release.apk

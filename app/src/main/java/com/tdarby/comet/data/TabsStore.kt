@@ -2,6 +2,10 @@ package com.tdarby.comet.data
 
 import android.content.Context
 import com.tdarby.comet.web.TabManager.TabSnapshot
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -13,6 +17,11 @@ import java.io.File
 class TabsStore(context: Context) {
 
     private val file = File(context.filesDir, "tabs.json")
+
+    // limitedParallelism(1) serializes writes in submission order so a later snapshot can't be
+    // overwritten by an earlier one, and keeps file I/O off the UI thread.
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val io = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
 
     var activeIndex: Int = 0
         private set
@@ -30,10 +39,10 @@ class TabsStore(context: Context) {
     }.getOrDefault(emptyList())
 
     fun save(tabs: List<TabSnapshot>, active: Int) {
-        runCatching {
-            val arr = JSONArray()
-            tabs.forEach { arr.put(JSONObject().put("u", it.url).put("t", it.title)) }
-            file.writeText(JSONObject().put("active", active).put("tabs", arr).toString())
-        }
+        // Snapshot now (on the caller thread), write on the serialized IO scope.
+        val arr = JSONArray()
+        tabs.forEach { arr.put(JSONObject().put("u", it.url).put("t", it.title)) }
+        val json = JSONObject().put("active", active).put("tabs", arr).toString()
+        io.launch { runCatching { file.writeText(json) } }
     }
 }

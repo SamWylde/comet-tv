@@ -20,7 +20,10 @@ class BrowserStore(context: Context) {
 
     private val bookmarksFile = File(context.filesDir, "bookmarks.json")
     private val historyFile = File(context.filesDir, "history.json")
-    private val io = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // limitedParallelism(1) serializes writes in submission order, so rapid changes can't persist
+    // out of order (a later snapshot landing before an earlier one).
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val io = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
 
     val bookmarks: MutableList<SiteItem> = mutableListOf()
     val history: MutableList<HistoryItem> = mutableListOf()
