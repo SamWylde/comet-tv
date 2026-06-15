@@ -42,8 +42,10 @@ class FilterListRepository(private val context: Context) {
 
     companion object {
         private const val CACHE_NAME = "blocklist_cache.txt"
-        // AdAway's ad/tracker hosts list (hosts format: "0.0.0.0 host"); moderate size for TV boxes.
+        // HaGeZi "Light" hosts list (hosts format: "0.0.0.0 host"): ads + tracking + affiliate/
+        // redirect smartlink hosts (e.g. voluum*), ~94k entries / ~2.8 MB — balanced for TV boxes.
+        // Bigger HaGeZi variants (multi/pro) exist but their 360k–490k entries are too heavy here.
         const val DEFAULT_LIST_URL =
-            "https://raw.githubusercontent.com/AdAway/adaway.github.io/master/hosts.txt"
+            "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/hosts/light.txt"
     }
 }
