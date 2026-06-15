@@ -111,7 +111,7 @@ object AdBlocker {
         return if (parts.size <= 2) host else parts.takeLast(2).joinToString(".")
     }
 
-    private fun isBlockedHost(host: String): Boolean {
+    internal fun isBlockedHost(host: String): Boolean {
         val hosts = blockedHosts // single volatile read → consistent snapshot
         var h = host
         while (true) {

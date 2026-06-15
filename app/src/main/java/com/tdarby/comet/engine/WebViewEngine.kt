@@ -1,15 +1,27 @@
 package com.tdarby.comet.engine
 
 import android.annotation.SuppressLint
+import android.content.ContentValues
 import android.content.Context
+import android.os.Build
+import android.os.Environment
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
+import android.util.Base64
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
+import android.webkit.URLUtil
 import android.webkit.WebSettings
 import android.webkit.WebView
+import android.widget.Toast
+import com.tdarby.comet.R
 import com.tdarby.comet.adblock.AdBlocker
 import com.tdarby.comet.web.BrowserWebChromeClient
 import com.tdarby.comet.web.BrowserWebViewClient
+import java.io.File
 
 /** System WebView (Chromium) implementation of [BrowserEngine]. */
 class WebViewEngine(
@@ -18,6 +30,7 @@ class WebViewEngine(
 ) : BrowserEngine {
 
     private val webView = WebView(context)
+    private val ctx = context.applicationContext
 
     override val view: View get() = webView
 
@@ -51,8 +64,52 @@ class WebViewEngine(
         webView.setDownloadListener { url, userAgent, _, mimeType, _ ->
             callbacks.onDownloadRequested(url, userAgent, mimeType)
         }
+        webView.addJavascriptInterface(BlobBridge(), "CometDownload")
         webView.isFocusable = true
         webView.isFocusableInTouchMode = true
+    }
+
+    /** JS bridge used by [fetchBlob] to hand a read blob back to native for saving. */
+    private inner class BlobBridge {
+        @JavascriptInterface
+        fun onBlob(dataUrl: String, mime: String?, srcUrl: String) = saveBlob(dataUrl, mime, srcUrl)
+    }
+
+    override fun fetchBlob(url: String) {
+        val js = "(function(){try{var x=new XMLHttpRequest();x.open('GET','$url',true);" +
+            "x.responseType='blob';x.onload=function(){var r=new FileReader();r.onloadend=function(){" +
+            "CometDownload.onBlob(r.result,x.getResponseHeader('content-type')||'','$url');};" +
+            "r.readAsDataURL(x.response);};x.send();}catch(e){}})();"
+        webView.evaluateJavascript(js, null)
+    }
+
+    private fun saveBlob(dataUrl: String, mime: String?, srcUrl: String) {
+        runCatching {
+            val comma = dataUrl.indexOf(',')
+            if (comma < 0) return
+            val bytes = Base64.decode(dataUrl.substring(comma + 1), Base64.DEFAULT)
+            val name = URLUtil.guessFileName(srcUrl, null, mime?.ifBlank { null })
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, name)
+                    if (!mime.isNullOrBlank()) put(MediaStore.Downloads.MIME_TYPE, mime)
+                    put(MediaStore.Downloads.IS_PENDING, 1)
+                }
+                val resolver = ctx.contentResolver
+                val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return
+                resolver.openOutputStream(uri)?.use { it.write(bytes) }
+                values.clear(); values.put(MediaStore.Downloads.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+            } else {
+                @Suppress("DEPRECATION")
+                val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                dir.mkdirs()
+                File(dir, name).outputStream().use { it.write(bytes) }
+            }
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(ctx, R.string.download_started, Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     override fun loadUrl(url: String) = webView.loadUrl(url)
