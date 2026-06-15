@@ -1,10 +1,10 @@
 {
   "webview": {
-    "versionCode": 4,
-    "versionName": "1.0.3",
+    "versionCode": 5,
+    "versionName": "1.0.4",
     "apkUrl": "https://github.com/SamWylde/comet-tv/releases/latest/download/app-webview-universal-release.apk",
-    "sha256": "abc70ec7696b4e4266d3ba78f9223819d526db8eaf912914b014c3fe7d80a5bd",
-    "notes": "Default search + home page is now Google. Address bar is reachable: it's focused at launch, BACK returns to it from the page, and RIGHT reaches the menu/Settings. Smoother page scrolling (mouse-wheel) in cursor mode. Installs on any ABI (universal APK).",
+    "sha256": "ef95cf78c22325eafae764d671e8bd1708c1981917e67ecd85cc281c133e9ac3",
+    "notes": "Big update: open links from other apps, tabs restored across restarts, file uploads, camera/mic/location prompts, zoom, remote media keys, voice search, SSL/login prompts, external-app links, long-press link/image menu, gamepad cursor, configurable cursor speed + direct D-pad mode, smoother scrolling, and an in-app downloads screen. GeckoView engine removed (slimmer, single WebView engine).",
     "required": false
   }
 }
