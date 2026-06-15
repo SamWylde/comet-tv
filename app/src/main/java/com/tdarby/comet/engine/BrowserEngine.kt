@@ -96,6 +96,16 @@ interface BrowserEngine {
     /** Route a remote media key into the page's media elements. */
     fun mediaAction(action: MediaAction) {}
 
+    /**
+     * Resolve the link/image at a CSS-pixel point (the cursor) for a long-press context menu.
+     * Returns (anchor href, image src, anchor text) via [result]; default finds nothing.
+     */
+    fun hitTestAt(
+        xCss: Float,
+        yCss: Float,
+        result: (href: String?, imageSrc: String?, anchorText: String?) -> Unit
+    ) = result(null, null, null)
+
     /** Switch between mobile/TV and desktop user-agent + viewport. */
     fun setDesktopMode(enabled: Boolean)
 

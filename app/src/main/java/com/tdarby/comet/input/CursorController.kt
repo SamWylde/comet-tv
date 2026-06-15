@@ -120,6 +120,10 @@ class CursorController(
     /** True when the pointer is at the top edge of the content area (used to exit to the toolbar). */
     fun atTopEdge(): Boolean = y in 0f..dp(2).toFloat()
 
+    /** Cursor position in CSS pixels (device px / density) for JS `elementFromPoint`. */
+    fun cssX(): Float = (if (x < 0f) 0f else x) / density
+    fun cssY(): Float = (if (y < 0f) 0f else y) / density
+
     /** Synthetic tap at the pointer. */
     fun click() {
         val target = targetProvider() ?: return

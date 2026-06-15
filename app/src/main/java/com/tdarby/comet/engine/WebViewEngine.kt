@@ -69,6 +69,25 @@ class WebViewEngine(
     override fun zoomIn() { webView.zoomIn() }
     override fun zoomOut() { webView.zoomOut() }
 
+    override fun hitTestAt(
+        xCss: Float,
+        yCss: Float,
+        result: (href: String?, imageSrc: String?, anchorText: String?) -> Unit
+    ) {
+        val js = "(function(){try{var el=document.elementFromPoint($xCss,$yCss);if(!el)return '{}';" +
+            "var a=el.closest&&el.closest('a[href]');var i=el.closest&&el.closest('img[src]');" +
+            "return JSON.stringify({href:a?a.href:null,img:i?i.src:null," +
+            "text:a?(a.textContent||'').trim().slice(0,80):null});}catch(e){return '{}';}})();"
+        webView.evaluateJavascript(js) { raw ->
+            val o = runCatching {
+                val inner = org.json.JSONTokener(raw).nextValue()
+                org.json.JSONObject(if (inner is String) inner else raw)
+            }.getOrNull()
+            fun field(k: String) = o?.optString(k)?.takeIf { it.isNotBlank() && it != "null" }
+            result(field("href"), field("img"), field("text"))
+        }
+    }
+
     override fun mediaAction(action: MediaAction) {
         val op = when (action) {
             MediaAction.PLAY_PAUSE -> "if(v.paused)v.play();else v.pause();"

@@ -63,6 +63,11 @@
     <string name="settings_search">Search engine</string>
     <string name="settings_direct_nav">Direct D-pad navigation (no cursor)</string>
     <string name="settings_cursor_speed">Cursor speed</string>
+    <string name="ctx_open_new_tab">Open link in new tab</string>
+    <string name="ctx_copy_link">Copy link</string>
+    <string name="ctx_open_image">Open image</string>
+    <string name="ctx_download_image">Download image</string>
+    <string name="ctx_copied">Link copied</string>
     <string name="bookmarks_empty">No bookmarks yet</string>
     <string name="history_empty">No history yet</string>
     <string name="history_clear">Clear history</string>
