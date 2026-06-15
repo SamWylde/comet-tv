@@ -1,5 +1,7 @@
 package com.tdarby.comet.input
 
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
@@ -40,17 +42,48 @@ class CursorController(
     private var x = -1f
     private var y = -1f
 
+    private val hideHandler = Handler(Looper.getMainLooper())
+    private val hideRunnable = Runnable { pointer.visibility = View.GONE }
+
     init {
         container.addView(pointer)
     }
 
     fun setActive(value: Boolean) {
         active = value
-        pointer.visibility = if (value) View.VISIBLE else View.GONE
         if (value) {
             if (x < 0f || y < 0f) center()
             updatePointer()
+            bumpVisibility()
+        } else {
+            hideHandler.removeCallbacks(hideRunnable)
+            pointer.visibility = View.GONE
         }
+    }
+
+    /** Show the pointer and (re)arm the idle auto-hide, TV Bro-style. */
+    private fun bumpVisibility() {
+        if (!active) return
+        pointer.visibility = View.VISIBLE
+        hideHandler.removeCallbacks(hideRunnable)
+        hideHandler.postDelayed(hideRunnable, AUTO_HIDE_MS)
+    }
+
+    /** Analog (gamepad/joystick) cursor movement; [dx]/[dy] are −1..1 stick deflections. */
+    fun nudge(dx: Float, dy: Float) {
+        if (container.width == 0) return
+        if (x < 0f || y < 0f) center()
+        val w = container.width.toFloat()
+        val h = container.height.toFloat()
+        val edge = dp(2).toFloat()
+        val sx = dx * dp(ANALOG_STEP)
+        val sy = dy * dp(ANALOG_STEP)
+        if (sy < 0 && y <= edge) scroll(0f, 1f, 4) else if (sy > 0 && y >= h - edge) scroll(0f, -1f, 4)
+        if (sx < 0 && x <= edge) scroll(1f, 0f, 4) else if (sx > 0 && x >= w - edge) scroll(-1f, 0f, 4)
+        x = (x + sx).coerceIn(0f, w)
+        y = (y + sy).coerceIn(0f, h)
+        updatePointer()
+        bumpVisibility()
     }
 
     private fun center() {
@@ -78,6 +111,7 @@ class CursorController(
         x = (x + dx * step).coerceIn(0f, w)
         y = (y + dy * step).coerceIn(0f, h)
         updatePointer()
+        bumpVisibility()
     }
 
     /** True when the pointer is at the top edge of the content area (used to exit to the toolbar). */
@@ -89,6 +123,7 @@ class CursorController(
         val now = SystemClock.uptimeMillis()
         dispatch(target, MotionEvent.ACTION_DOWN, x, y, now, now)
         dispatch(target, MotionEvent.ACTION_UP, x, y, now, now + 60)
+        bumpVisibility()
     }
 
     /**
@@ -135,4 +170,9 @@ class CursorController(
     private fun stepFor(repeatCount: Int): Float = dp(14) + min(repeatCount, 24) * dp(3).toFloat()
 
     private fun dp(value: Int): Int = (value * density).toInt()
+
+    private companion object {
+        const val AUTO_HIDE_MS = 5000L
+        const val ANALOG_STEP = 22
+    }
 }

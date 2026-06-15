@@ -4,21 +4,30 @@ import android.app.DownloadManager
 import android.content.Intent
 import android.graphics.Typeface
 import android.net.Uri
+import android.net.http.SslError
 import android.os.Bundle
 import android.os.Environment
 import android.speech.RecognizerIntent
+import android.text.InputType
+import android.view.InputDevice
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
+import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
+import android.webkit.HttpAuthHandler
 import android.webkit.PermissionRequest
+import android.webkit.SslErrorHandler
 import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -50,6 +59,7 @@ import com.tdarby.comet.util.SearchEngines
 import com.tdarby.comet.util.UrlUtils
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlin.math.abs
 
 class BrowserActivity : AppCompatActivity() {
 
@@ -225,6 +235,7 @@ class BrowserActivity : AppCompatActivity() {
                 R.id.menu_bookmark -> toggleBookmark()
                 R.id.menu_bookmarks -> showBookmarks()
                 R.id.menu_history -> showHistory()
+                R.id.menu_downloads -> showDownloads()
                 R.id.menu_home -> engine.loadUrl(HOME_URL)
                 R.id.menu_voice -> launchVoiceSearch()
                 R.id.menu_zoom_in -> engine.zoomIn()
@@ -317,12 +328,85 @@ class BrowserActivity : AppCompatActivity() {
             val request = DownloadManager.Request(url.toUri()).apply {
                 setMimeType(mimeType)
                 userAgent?.let { addRequestHeader("User-Agent", it) }
+                // Propagate cookies so session/login-gated downloads succeed.
+                CookieManager.getInstance().getCookie(url)?.let { addRequestHeader("Cookie", it) }
                 setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
             }
             (getSystemService(DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
             toast(R.string.download_started)
         }
+    }
+
+    private data class DownloadRow(
+        val id: Long, val title: String, val label: String, val status: Int, val mime: String?
+    )
+
+    /** In-app downloads list (snapshot): tap an item for open/install/cancel/delete actions. */
+    private fun showDownloads() {
+        val dm = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+        val rows = mutableListOf<DownloadRow>()
+        runCatching {
+            dm.query(DownloadManager.Query()).use { c ->
+                val iId = c.getColumnIndex(DownloadManager.COLUMN_ID)
+                val iTitle = c.getColumnIndex(DownloadManager.COLUMN_TITLE)
+                val iStatus = c.getColumnIndex(DownloadManager.COLUMN_STATUS)
+                val iMime = c.getColumnIndex(DownloadManager.COLUMN_MEDIA_TYPE)
+                val iCur = c.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
+                val iTot = c.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
+                while (c.moveToNext() && rows.size < 40) {
+                    val status = c.getInt(iStatus)
+                    val title = c.getString(iTitle)?.ifBlank { null } ?: "download"
+                    val state = when (status) {
+                        DownloadManager.STATUS_SUCCESSFUL -> getString(R.string.dl_done)
+                        DownloadManager.STATUS_FAILED -> getString(R.string.dl_failed)
+                        DownloadManager.STATUS_PAUSED -> getString(R.string.dl_paused)
+                        DownloadManager.STATUS_PENDING -> getString(R.string.dl_pending)
+                        else -> {
+                            val tot = c.getLong(iTot); val cur = c.getLong(iCur)
+                            if (tot > 0) getString(R.string.dl_running_pct, (cur * 100 / tot).toInt())
+                            else getString(R.string.dl_running)
+                        }
+                    }
+                    rows.add(DownloadRow(c.getLong(iId), title, "$title — $state", status, c.getString(iMime)))
+                }
+            }
+        }
+        if (rows.isEmpty()) { toast(R.string.dl_empty); return }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.menu_downloads)
+            .setItems(rows.map { it.label }.toTypedArray()) { _, which -> showDownloadActions(rows[which]) }
+            .setNegativeButton(R.string.action_close, null)
+            .show()
+    }
+
+    private fun showDownloadActions(row: DownloadRow) {
+        val dm = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+        val actions = mutableListOf<Pair<String, () -> Unit>>()
+        if (row.status == DownloadManager.STATUS_SUCCESSFUL) {
+            actions += getString(R.string.dl_open) to { openDownload(dm, row) }
+        }
+        if (row.status in setOf(
+                DownloadManager.STATUS_RUNNING, DownloadManager.STATUS_PENDING, DownloadManager.STATUS_PAUSED
+            )
+        ) {
+            actions += getString(R.string.dl_cancel) to { dm.remove(row.id); Unit }
+        }
+        actions += getString(R.string.dl_delete) to { dm.remove(row.id); Unit }
+        AlertDialog.Builder(this)
+            .setTitle(row.title)
+            .setItems(actions.map { it.first }.toTypedArray()) { _, which -> actions[which].second() }
+            .setNegativeButton(R.string.action_close, null)
+            .show()
+    }
+
+    private fun openDownload(dm: DownloadManager, row: DownloadRow) {
+        val uri = runCatching { dm.getUriForDownloadedFile(row.id) }.getOrNull() ?: return
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, row.mime ?: "*/*")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        runCatching { startActivity(intent) }.onFailure { toast(R.string.external_failed) }
     }
 
     private fun checkForUpdates(manual: Boolean) {
@@ -504,7 +588,8 @@ class BrowserActivity : AppCompatActivity() {
                 return true
             }
 
-            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
+            KeyEvent.KEYCODE_BUTTON_A -> {
                 when (event.action) {
                     KeyEvent.ACTION_DOWN ->
                         if (event.repeatCount == 1) { // first auto-repeat ≈ long press
@@ -518,6 +603,24 @@ class BrowserActivity : AppCompatActivity() {
             }
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    /** Analog stick / D-pad-hat from a gamepad moves the on-screen cursor. */
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (!isFullscreen && cursor.active && tabManager.hasTabs &&
+            event.action == MotionEvent.ACTION_MOVE &&
+            event.source and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK
+        ) {
+            var ax = event.getAxisValue(MotionEvent.AXIS_X)
+            var ay = event.getAxisValue(MotionEvent.AXIS_Y)
+            if (abs(ax) < AXIS_DEADZONE) ax = event.getAxisValue(MotionEvent.AXIS_HAT_X)
+            if (abs(ay) < AXIS_DEADZONE) ay = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
+            if (abs(ax) > AXIS_DEADZONE || abs(ay) > AXIS_DEADZONE) {
+                cursor.nudge(if (abs(ax) > AXIS_DEADZONE) ax else 0f, if (abs(ay) > AXIS_DEADZONE) ay else 0f)
+                return true
+            }
+        }
+        return super.onGenericMotionEvent(event)
     }
 
     private fun mediaActionFor(keyCode: Int): MediaAction? = when (keyCode) {
@@ -618,6 +721,54 @@ class BrowserActivity : AppCompatActivity() {
                 .show()
         }
 
+        override fun onSslError(handler: SslErrorHandler, error: SslError) {
+            AlertDialog.Builder(this@BrowserActivity)
+                .setTitle(R.string.ssl_title)
+                .setMessage(getString(R.string.ssl_message, error.url ?: ""))
+                .setPositiveButton(R.string.ssl_proceed) { _, _ -> handler.proceed() }
+                .setNegativeButton(R.string.action_cancel) { _, _ -> handler.cancel() }
+                .setOnCancelListener { handler.cancel() }
+                .show()
+        }
+
+        override fun onHttpAuthRequest(handler: HttpAuthHandler, host: String, realm: String?) {
+            val user = EditText(this@BrowserActivity).apply { hint = getString(R.string.auth_user) }
+            val pass = EditText(this@BrowserActivity).apply {
+                hint = getString(R.string.auth_pass)
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            }
+            val box = LinearLayout(this@BrowserActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(48, 16, 48, 0)
+                addView(user); addView(pass)
+            }
+            AlertDialog.Builder(this@BrowserActivity)
+                .setTitle(getString(R.string.auth_title, host))
+                .setView(box)
+                .setPositiveButton(R.string.permission_allow) { _, _ ->
+                    handler.proceed(user.text.toString(), pass.text.toString())
+                }
+                .setNegativeButton(R.string.action_cancel) { _, _ -> handler.cancel() }
+                .setOnCancelListener { handler.cancel() }
+                .show()
+        }
+
+        override fun onExternalUrl(url: String): Boolean {
+            val launch = runCatching {
+                if (url.startsWith("intent:")) Intent.parseUri(url, Intent.URI_INTENT_SCHEME)
+                else Intent(Intent.ACTION_VIEW, url.toUri())
+            }.getOrNull() ?: return true
+            AlertDialog.Builder(this@BrowserActivity)
+                .setTitle(R.string.external_title)
+                .setMessage(getString(R.string.external_message, url.take(120)))
+                .setPositiveButton(R.string.external_open) { _, _ ->
+                    runCatching { startActivity(launch) }.onFailure { toast(R.string.external_failed) }
+                }
+                .setNegativeButton(R.string.action_cancel, null)
+                .show()
+            return true
+        }
+
         override fun onEnterFullscreen(fullscreenView: View, onExit: () -> Unit) {
             isFullscreen = true
             exitFullscreen = onExit
@@ -685,5 +836,6 @@ class BrowserActivity : AppCompatActivity() {
 
     companion object {
         private const val HOME_URL = "https://www.google.com/"
+        private const val AXIS_DEADZONE = 0.18f
     }
 }

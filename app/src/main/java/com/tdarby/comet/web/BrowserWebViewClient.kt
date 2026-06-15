@@ -1,7 +1,10 @@
 package com.tdarby.comet.web
 
 import android.graphics.Bitmap
+import android.net.http.SslError
 import android.util.Log
+import android.webkit.HttpAuthHandler
+import android.webkit.SslErrorHandler
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -32,6 +35,15 @@ class BrowserWebViewClient(
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         if (!request.isForMainFrame) return false
         val url = request.url?.toString()
+        // Non-web links (intent:, market:, tel:, mailto:, ...) can't load in a WebView — hand them
+        // to the right app (with confirmation) instead of erroring.
+        val scheme = request.url?.scheme?.lowercase()
+        if (scheme != null && scheme != "http" && scheme != "https" && scheme != "about" &&
+            scheme != "data" && scheme != "javascript" && url != null
+        ) {
+            callbacks.onExternalUrl(url)
+            return true
+        }
         if (AdBlocker.shouldBlockNavigation(url, currentHost)) {
             Log.i(TAG, "Blocked ad-host redirect: $url (from $currentHost)")
             callbacks.onPopupBlocked(url)
@@ -77,6 +89,19 @@ class BrowserWebViewClient(
         } else {
             null
         }
+    }
+
+    override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
+        callbacks.onSslError(handler, error)
+    }
+
+    override fun onReceivedHttpAuthRequest(
+        view: WebView,
+        handler: HttpAuthHandler,
+        host: String,
+        realm: String?
+    ) {
+        callbacks.onHttpAuthRequest(handler, host, realm)
     }
 
     private fun notifyNav(view: WebView) {
