@@ -6,13 +6,5 @@
     "sha256": "abc70ec7696b4e4266d3ba78f9223819d526db8eaf912914b014c3fe7d80a5bd",
     "notes": "Default search + home page is now Google. Address bar is reachable: it's focused at launch, BACK returns to it from the page, and RIGHT reaches the menu/Settings. Smoother page scrolling (mouse-wheel) in cursor mode. Installs on any ABI (universal APK).",
     "required": false
-  },
-  "full": {
-    "versionCode": 4,
-    "versionName": "1.0.3",
-    "apkUrl": "https://github.com/SamWylde/comet-tv/releases/latest/download/app-full-arm64-v8a-release.apk",
-    "sha256": "c77a59d64461bfb9de45f1f6ab8bec27d9a98eb3a02fa42852319aff5881e54d",
-    "notes": "Default search + home page is now Google. Address bar reachable (focused at launch, BACK returns to it, RIGHT reaches menu/Settings). Smoother scrolling. Per-ABI APKs incl. 32-bit armeabi-v7a. Note: the 'Block all page redirects' toggle is WebView-only.",
-    "required": false
   }
 }

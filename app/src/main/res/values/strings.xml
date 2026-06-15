@@ -8,9 +8,6 @@
     <string name="action_menu">Menu</string>
     <string name="action_cursor">Toggle cursor</string>
     <string name="settings_title">Settings</string>
-    <string name="settings_engine">Browser engine</string>
-    <string name="engine_webview">System WebView (best video compatibility)</string>
-    <string name="engine_gecko">GeckoView (Firefox engine + tracking protection)</string>
     <string name="settings_desktop">Request desktop site</string>
     <string name="settings_blocking">Ad &amp; tracker blocking</string>
     <string name="settings_block_network">Network blocking (ads/trackers)</string>
@@ -21,7 +18,6 @@
     <string name="settings_allow_site_host">Allow ads on %s</string>
     <string name="action_apply">Apply</string>
     <string name="action_cancel">Cancel</string>
-    <string name="engine_unavailable">GeckoView is only in the \"full\" build</string>
     <string name="menu_new_tab">New tab</string>
     <string name="menu_close_tab">Close tab</string>
     <string name="menu_add_bookmark">Add bookmark</string>

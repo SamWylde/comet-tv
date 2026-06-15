@@ -9,8 +9,6 @@ package com.tdarby.comet.adblock
  *    ad popups die while legitimate "open in new tab" links still navigate.
  *  - `onCreateWindow` (in the chrome client) routes any surviving new-window request into the
  *    current tab instead of spawning a window.
- *
- * GeckoView gets equivalent behavior by denying `onNewSession`.
  */
 object PopupGuard {
 

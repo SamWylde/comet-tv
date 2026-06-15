@@ -7,24 +7,16 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import com.tdarby.comet.engine.EngineType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore by preferencesDataStore(name = "comet_settings")
 
-/** Persisted user settings (engine choice, desktop mode, ad-block toggles later). */
+/** Persisted user settings (desktop mode, ad-block toggles, cursor options). */
 class SettingsStore(context: Context) {
 
     private val ds = context.applicationContext.dataStore
-
-    val engineType: Flow<EngineType> = ds.data.map { p ->
-        when (p[KEY_ENGINE]) {
-            EngineType.GECKO.name -> EngineType.GECKO
-            else -> EngineType.WEBVIEW
-        }
-    }
 
     val desktopMode: Flow<Boolean> = ds.data.map { it[KEY_DESKTOP] ?: false }
     val blockNetwork: Flow<Boolean> = ds.data.map { it[KEY_BLOCK_NETWORK] ?: true }
@@ -36,7 +28,6 @@ class SettingsStore(context: Context) {
     val cursorSpeed: Flow<Int> = ds.data.map { it[KEY_CURSOR_SPEED] ?: DEFAULT_CURSOR_SPEED }
     val directNav: Flow<Boolean> = ds.data.map { it[KEY_DIRECT_NAV] ?: false }
 
-    suspend fun engineTypeNow(): EngineType = engineType.first()
     suspend fun desktopModeNow(): Boolean = desktopMode.first()
     suspend fun blockNetworkNow(): Boolean = blockNetwork.first()
     suspend fun blockCosmeticNow(): Boolean = blockCosmetic.first()
@@ -48,10 +39,6 @@ class SettingsStore(context: Context) {
     suspend fun directNavNow(): Boolean = directNav.first()
 
     suspend fun setSearchTemplate(template: String) = ds.edit { it[KEY_SEARCH] = template }
-
-    suspend fun setEngineType(type: EngineType) {
-        ds.edit { it[KEY_ENGINE] = type.name }
-    }
 
     suspend fun setDesktopMode(enabled: Boolean) {
         ds.edit { it[KEY_DESKTOP] = enabled }
@@ -73,7 +60,6 @@ class SettingsStore(context: Context) {
     }
 
     companion object {
-        private val KEY_ENGINE = stringPreferencesKey("engine_type")
         private val KEY_DESKTOP = booleanPreferencesKey("desktop_mode")
         private val KEY_BLOCK_NETWORK = booleanPreferencesKey("block_network")
         private val KEY_BLOCK_COSMETIC = booleanPreferencesKey("block_cosmetic")

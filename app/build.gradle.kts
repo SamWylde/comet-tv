@@ -13,10 +13,7 @@ val keystoreProps = Properties().apply {
 
 android {
     namespace = "com.tdarby.comet"
-    // GeckoView (full flavor) pulls androidx.core 1.18, which requires compiling against API 36.
-    compileSdk = 36
-    // Enables stripping of bundled native libs (GeckoView's libxul.so etc.) in release builds.
-    ndkVersion = "28.2.13676358"
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.tdarby.comet"
@@ -24,24 +21,6 @@ android {
         targetSdk = 35
         versionCode = 4
         versionName = "1.0.3"
-    }
-
-    // Two engine builds: `webview` (slim, System WebView only) and `full` (also bundles
-    // GeckoView). Both share one codebase; engine-specific code lives in per-flavor source sets.
-    flavorDimensions += "engine"
-    productFlavors {
-        create("webview") {
-            dimension = "engine"
-            versionNameSuffix = "-webview"
-            buildConfigField("String", "FLAVOR_LABEL", "\"webview\"")
-        }
-        create("full") {
-            dimension = "engine"
-            versionNameSuffix = "-full"
-            buildConfigField("String", "FLAVOR_LABEL", "\"full\"")
-            // ABI selection is handled by the `splits` block below (arm64-v8a + x86_64), which keeps
-            // the GeckoView-bundled native libs to a sane size per APK.
-        }
     }
 
     signingConfigs {
@@ -69,14 +48,13 @@ android {
         }
     }
 
-    // Per-ABI APKs keep download size down (esp. the GeckoView-bundled `full` flavor).
+    // Per-ABI APKs plus a universal APK. armeabi-v7a covers 32-bit Android TV (e.g. Chromecast with
+    // Google TV HD); arm64-v8a for most TV boxes; x86_64 for the emulator. The universal APK installs
+    // on any ABI (avoids "app not compatible" on sideload).
     splits {
         abi {
             isEnable = true
             reset()
-            // armeabi-v7a covers 32-bit Android TV (e.g. Chromecast with Google TV HD); arm64-v8a
-            // for most TV boxes; x86_64 for the emulator. A universal APK is also emitted so a
-            // single download installs on any ABI (avoids "app not compatible" on sideload).
             include("armeabi-v7a", "arm64-v8a", "x86_64")
             isUniversalApk = true
         }
@@ -109,9 +87,6 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-
-    // GeckoView is only bundled into the `full` flavor (keeps the `webview` APK slim).
-    "fullImplementation"("org.mozilla.geckoview:geckoview:151.0.20260608154138")
 
     testImplementation("junit:junit:4.13.2")
 }
