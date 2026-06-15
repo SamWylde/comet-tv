@@ -183,5 +183,35 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content" />
         </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/settings_direct_nav" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/switch_direct_nav"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:text="@string/settings_cursor_speed" />
+
+        <SeekBar
+            android:id="@+id/seek_cursor_speed"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="4" />
     </LinearLayout>
 </ScrollView>

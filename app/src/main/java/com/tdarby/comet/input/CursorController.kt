@@ -39,6 +39,9 @@ class CursorController(
     var active: Boolean = false
         private set
 
+    /** Cursor movement multiplier (driven by the Settings slider). */
+    var speedFactor: Float = 1f
+
     private var x = -1f
     private var y = -1f
 
@@ -76,8 +79,8 @@ class CursorController(
         val w = container.width.toFloat()
         val h = container.height.toFloat()
         val edge = dp(2).toFloat()
-        val sx = dx * dp(ANALOG_STEP)
-        val sy = dy * dp(ANALOG_STEP)
+        val sx = dx * dp(ANALOG_STEP) * speedFactor
+        val sy = dy * dp(ANALOG_STEP) * speedFactor
         if (sy < 0 && y <= edge) scroll(0f, 1f, 4) else if (sy > 0 && y >= h - edge) scroll(0f, -1f, 4)
         if (sx < 0 && x <= edge) scroll(1f, 0f, 4) else if (sx > 0 && x >= w - edge) scroll(-1f, 0f, 4)
         x = (x + sx).coerceIn(0f, w)
@@ -166,8 +169,9 @@ class CursorController(
         pointer.translationY = y
     }
 
-    /** Acceleration: small steps for taps, faster while a direction is held. */
-    private fun stepFor(repeatCount: Int): Float = dp(14) + min(repeatCount, 24) * dp(3).toFloat()
+    /** Acceleration: small steps for taps, faster while a direction is held, scaled by speed. */
+    private fun stepFor(repeatCount: Int): Float =
+        (dp(14) + min(repeatCount, 24) * dp(3).toFloat()) * speedFactor
 
     private fun dp(value: Int): Int = (value * density).toInt()
 

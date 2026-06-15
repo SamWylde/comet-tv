@@ -97,6 +97,8 @@ class BrowserActivity : AppCompatActivity() {
     private lateinit var activeEngineType: EngineType
     private var desktopMode = false
     private var searchTemplate = SettingsStore.DEFAULT_SEARCH
+    private var directNav = false
+    private var cursorSpeedSetting = SettingsStore.DEFAULT_CURSOR_SPEED
 
     private var isFullscreen = false
     private var overlayFullscreen = false
@@ -118,6 +120,8 @@ class BrowserActivity : AppCompatActivity() {
             activeEngineType = settings.engineTypeNow()
             desktopMode = settings.desktopModeNow()
             searchTemplate = settings.searchTemplateNow()
+            cursorSpeedSetting = settings.cursorSpeedNow()
+            directNav = settings.directNavNow()
             AdBlocker.networkEnabled = settings.blockNetworkNow()
             AdBlocker.cosmeticEnabled = settings.blockCosmeticNow()
             AdBlocker.popupEnabled = settings.blockPopupsNow()
@@ -128,6 +132,7 @@ class BrowserActivity : AppCompatActivity() {
         cursor = CursorController(binding.engineContainer) {
             if (::tabManager.isInitialized && tabManager.hasTabs) tabManager.activeEngine.view else null
         }
+        cursor.speedFactor = speedFactor(cursorSpeedSetting)
         tabManager = TabManager(
             container = binding.engineContainer,
             homeUrl = HOME_URL,
@@ -197,6 +202,11 @@ class BrowserActivity : AppCompatActivity() {
     private fun setCursor(active: Boolean) {
         cursor.setActive(active)
         if (active) binding.engineContainer.requestFocus() else binding.urlBar.requestFocus()
+    }
+
+    /** Map the 1..5 speed slider to a cursor movement multiplier (3 = normal). */
+    private fun speedFactor(i: Int): Float = when (i) {
+        1 -> 0.5f; 2 -> 0.75f; 4 -> 1.5f; 5 -> 2.0f; else -> 1.0f
     }
 
     private fun wireChrome() = with(binding) {
@@ -459,6 +469,8 @@ class BrowserActivity : AppCompatActivity() {
         dlg.switchBlockCosmetic.isChecked = AdBlocker.cosmeticEnabled
         dlg.switchBlockPopups.isChecked = AdBlocker.popupEnabled
         dlg.switchBlockRedirects.isChecked = AdBlocker.redirectBlockEnabled
+        dlg.switchDirectNav.isChecked = directNav
+        dlg.seekCursorSpeed.progress = (cursorSpeedSetting - 1).coerceIn(0, 4)
 
         val host = currentHost
         dlg.switchAllowSite.isEnabled = host != null
@@ -483,6 +495,9 @@ class BrowserActivity : AppCompatActivity() {
                 AdBlocker.cosmeticEnabled = dlg.switchBlockCosmetic.isChecked
                 AdBlocker.popupEnabled = dlg.switchBlockPopups.isChecked
                 AdBlocker.redirectBlockEnabled = dlg.switchBlockRedirects.isChecked
+                directNav = dlg.switchDirectNav.isChecked
+                cursorSpeedSetting = dlg.seekCursorSpeed.progress + 1
+                cursor.speedFactor = speedFactor(cursorSpeedSetting)
                 tabManager.forEachEngine {
                     it.setBlockingEnabled(AdBlocker.networkEnabled)
                     it.applyPopupPolicy()
@@ -502,6 +517,8 @@ class BrowserActivity : AppCompatActivity() {
                     settings.setBlockCosmetic(AdBlocker.cosmeticEnabled)
                     settings.setBlockPopups(AdBlocker.popupEnabled)
                     settings.setBlockRedirects(AdBlocker.redirectBlockEnabled)
+                    settings.setDirectNav(directNav)
+                    settings.setCursorSpeed(cursorSpeedSetting)
                     if (host != null) settings.setSiteAllowlisted(host, allowChecked)
                 }
 
@@ -541,7 +558,7 @@ class BrowserActivity : AppCompatActivity() {
         if (!cursor.active) {
             if (event.action == KeyEvent.ACTION_DOWN) {
                 // DOWN from anywhere in the top bar drops into the page and shows the cursor again.
-                if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && binding.topBar.hasFocus()) {
+                if (!directNav && event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && binding.topBar.hasFocus()) {
                     setCursor(true)
                     return true
                 }

@@ -61,6 +61,8 @@
     <string name="external_open">Open</string>
     <string name="external_failed">No app can open that link</string>
     <string name="settings_search">Search engine</string>
+    <string name="settings_direct_nav">Direct D-pad navigation (no cursor)</string>
+    <string name="settings_cursor_speed">Cursor speed</string>
     <string name="bookmarks_empty">No bookmarks yet</string>
     <string name="history_empty">No history yet</string>
     <string name="history_clear">Clear history</string>
