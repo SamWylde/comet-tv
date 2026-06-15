@@ -1,20 +1,28 @@
 package com.tdarby.comet.ui
 
 import android.app.DownloadManager
+import android.content.Intent
 import android.graphics.Typeface
+import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
+import android.speech.RecognizerIntent
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
+import android.webkit.GeolocationPermissions
+import android.webkit.PermissionRequest
 import android.webkit.URLUtil
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.net.toUri
@@ -31,7 +39,9 @@ import com.tdarby.comet.engine.BrowserEngine
 import com.tdarby.comet.engine.EngineCallbacks
 import com.tdarby.comet.engine.EngineFactory
 import com.tdarby.comet.data.BrowserStore
+import com.tdarby.comet.data.TabsStore
 import com.tdarby.comet.engine.EngineType
+import com.tdarby.comet.engine.MediaAction
 import com.tdarby.comet.input.CursorController
 import com.tdarby.comet.update.ReleaseManifest
 import com.tdarby.comet.update.UpdateChecker
@@ -46,8 +56,30 @@ class BrowserActivity : AppCompatActivity() {
     private lateinit var binding: ActivityBrowserBinding
     private lateinit var settings: SettingsStore
     private lateinit var store: BrowserStore
+    private lateinit var tabsStore: TabsStore
     private lateinit var tabManager: TabManager
     private lateinit var cursor: CursorController
+
+    /** Pending `<input type=file>` callback while the system picker is open. */
+    private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
+
+    private val fileChooserLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val cb = fileChooserCallback ?: return@registerForActivityResult
+            fileChooserCallback = null
+            cb.onReceiveValue(
+                WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
+            )
+        }
+
+    private val voiceSearchLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val spoken = result.data
+                ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                ?.firstOrNull()
+                ?.takeIf { it.isNotBlank() } ?: return@registerForActivityResult
+            engine.loadUrl(UrlUtils.toUrlOrSearch(spoken, searchTemplate))
+        }
 
     /** The active tab's engine. A getter keeps every call site engine-agnostic and tab-aware. */
     private val engine: BrowserEngine get() = tabManager.activeEngine
@@ -69,6 +101,7 @@ class BrowserActivity : AppCompatActivity() {
 
         settings = SettingsStore(this)
         store = BrowserStore(this)
+        tabsStore = TabsStore(this)
         // Blocklist is loaded once in CometApp.onCreate (FilterListRepository.loadInitial).
         // Small one-shot reads at startup so engine + blocking match the user's saved choices.
         runBlocking {
@@ -95,15 +128,43 @@ class BrowserActivity : AppCompatActivity() {
                 e.applyPopupPolicy()
             },
             ui = callbacks,
-            onChanged = ::refreshTabStrip
+            onChanged = ::onTabsChanged
         )
 
         wireChrome()
         registerBackHandling()
         setupCursorFocus()
 
-        tabManager.newTab(HOME_URL)
+        openInitialTabs()
         checkForUpdates(manual = false)
+    }
+
+    /** Open a link passed via VIEW intent, else restore the saved session, else a home tab. */
+    private fun openInitialTabs() {
+        val intentUrl = intentUrl(intent)
+        when {
+            intentUrl != null -> tabManager.newTab(intentUrl)
+            else -> tabManager.restore(tabsStore.load(), tabsStore.activeIndex) // empty -> home tab
+        }
+    }
+
+    /** Extract an http(s) URL from a VIEW intent (opening links from other apps). */
+    private fun intentUrl(intent: Intent?): String? {
+        if (intent?.action != Intent.ACTION_VIEW) return null
+        val data = intent.dataString ?: return null
+        return data.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intentUrl(intent)?.let { tabManager.newTab(it) }
+    }
+
+    private fun persistTabs() {
+        if (::tabManager.isInitialized && tabManager.hasTabs) {
+            tabsStore.save(tabManager.snapshot(), tabManager.activePosition())
+        }
     }
 
     private fun switchEngine(type: EngineType) {
@@ -112,14 +173,14 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     private fun setupCursorFocus() {
-        // Moving focus down into the page area turns the cursor on; moving focus back up to the
-        // toolbar turns it off so the pointer doesn't linger over the page while you're in the bar.
-        binding.engineContainer.setOnFocusChangeListener { _, hasFocus ->
-            if (hasFocus && !cursor.active) cursor.setActive(true)
-            else if (!hasFocus && cursor.active) cursor.setActive(false)
+        // Keep the caret at the end of the URL when the bar gains focus, so a single RIGHT moves on
+        // to the toolbar buttons (⋮ menu) instead of walking the caret through the whole URL.
+        binding.urlBar.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) binding.urlBar.setSelection(binding.urlBar.text?.length ?: 0)
         }
-        // Start focused on the address bar so the user can immediately type a URL (press DOWN to
-        // drop into the page, which switches on the D-pad cursor).
+        // Start focused on the address bar so the user can immediately type a URL. The cursor is
+        // turned on explicitly when DOWN drops into the page (see dispatchKeyEvent), and off again
+        // by BACK / long-press-OK / UP-at-top — no reliance on container focus events.
         binding.urlBar.post { binding.urlBar.requestFocus() }
     }
 
@@ -165,6 +226,9 @@ class BrowserActivity : AppCompatActivity() {
                 R.id.menu_bookmarks -> showBookmarks()
                 R.id.menu_history -> showHistory()
                 R.id.menu_home -> engine.loadUrl(HOME_URL)
+                R.id.menu_voice -> launchVoiceSearch()
+                R.id.menu_zoom_in -> engine.zoomIn()
+                R.id.menu_zoom_out -> engine.zoomOut()
                 R.id.menu_update -> checkForUpdates(manual = true)
                 R.id.menu_settings -> showSettings()
             }
@@ -177,6 +241,11 @@ class BrowserActivity : AppCompatActivity() {
         tabManager.newTab(HOME_URL)
         binding.urlBar.setText("")
         binding.urlBar.requestFocus()
+    }
+
+    private fun onTabsChanged() {
+        refreshTabStrip()
+        persistTabs()
     }
 
     /** Rebuild the tab strip; shown only when more than one tab is open. */
@@ -371,8 +440,42 @@ class BrowserActivity : AppCompatActivity() {
         // In fullscreen video, let the player handle D-pad/OK natively (the cursor overlay is
         // hidden behind the fullscreen view, so dispatching synthetic touches would be useless).
         if (isFullscreen) return super.dispatchKeyEvent(event)
-        if (binding.urlBar.hasFocus()) return super.dispatchKeyEvent(event)
-        if (!cursor.active) return super.dispatchKeyEvent(event)
+
+        // Remote media keys drive the page's <video>/<audio> regardless of cursor/toolbar focus.
+        mediaActionFor(event.keyCode)?.let { action ->
+            if (event.action == KeyEvent.ACTION_DOWN && tabManager.hasTabs) engine.mediaAction(action)
+            return true
+        }
+        if (event.keyCode == KeyEvent.KEYCODE_SEARCH) {
+            if (event.action == KeyEvent.ACTION_UP) launchVoiceSearch()
+            return true
+        }
+
+        // Toolbar mode (cursor off): D-pad does normal focus navigation, with two tweaks so the
+        // page and the ⋮ menu stay reachable from the address bar (an EditText that otherwise traps
+        // LEFT/RIGHT for caret movement — the "walk through every character" problem).
+        if (!cursor.active) {
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                // DOWN from anywhere in the top bar drops into the page and shows the cursor again.
+                if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && binding.topBar.hasFocus()) {
+                    setCursor(true)
+                    return true
+                }
+                if (binding.urlBar.hasFocus()) {
+                    val et = binding.urlBar
+                    val len = et.text?.length ?: 0
+                    // At the end of the URL, RIGHT jumps to the toolbar buttons (Go / cursor / ⋮);
+                    // at the start, LEFT jumps to reload/forward/back — no caret-walking required.
+                    if (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && et.selectionEnd >= len) {
+                        binding.btnGo.requestFocus(); return true
+                    }
+                    if (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && et.selectionStart <= 0) {
+                        binding.btnReload.requestFocus(); return true
+                    }
+                }
+            }
+            return super.dispatchKeyEvent(event)
+        }
 
         when (event.keyCode) {
             KeyEvent.KEYCODE_DPAD_UP -> {
@@ -415,6 +518,25 @@ class BrowserActivity : AppCompatActivity() {
             }
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    private fun mediaActionFor(keyCode: Int): MediaAction? = when (keyCode) {
+        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+        KeyEvent.KEYCODE_MEDIA_PLAY,
+        KeyEvent.KEYCODE_MEDIA_PAUSE -> MediaAction.PLAY_PAUSE
+        KeyEvent.KEYCODE_MEDIA_STOP -> MediaAction.STOP
+        KeyEvent.KEYCODE_MEDIA_REWIND -> MediaAction.REWIND
+        KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> MediaAction.FORWARD
+        else -> null
+    }
+
+    private fun launchVoiceSearch() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_WEB_SEARCH)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, getString(R.string.voice_prompt))
+        }
+        runCatching { voiceSearchLauncher.launch(intent) }
+            .onFailure { toast(R.string.voice_unavailable) }
     }
 
     private fun registerBackHandling() {
@@ -464,6 +586,36 @@ class BrowserActivity : AppCompatActivity() {
 
         override fun onDownloadRequested(url: String, userAgent: String?, mimeType: String?) {
             enqueueDownload(url, userAgent, mimeType)
+        }
+
+        override fun onShowFileChooser(
+            filePathCallback: ValueCallback<Array<Uri>>,
+            params: WebChromeClient.FileChooserParams
+        ): Boolean {
+            fileChooserCallback?.onReceiveValue(null) // cancel a stale one
+            fileChooserCallback = filePathCallback
+            return runCatching { fileChooserLauncher.launch(params.createIntent()); true }
+                .getOrElse { fileChooserCallback = null; false }
+        }
+
+        override fun onPermissionRequest(request: PermissionRequest) {
+            AlertDialog.Builder(this@BrowserActivity)
+                .setTitle(R.string.permission_title)
+                .setMessage(getString(R.string.permission_message, request.resources.joinToString()))
+                .setPositiveButton(R.string.permission_allow) { _, _ -> request.grant(request.resources) }
+                .setNegativeButton(R.string.permission_deny) { _, _ -> request.deny() }
+                .setOnCancelListener { request.deny() }
+                .show()
+        }
+
+        override fun onGeolocationPrompt(origin: String, callback: GeolocationPermissions.Callback) {
+            AlertDialog.Builder(this@BrowserActivity)
+                .setTitle(R.string.permission_title)
+                .setMessage(getString(R.string.permission_location, origin))
+                .setPositiveButton(R.string.permission_allow) { _, _ -> callback.invoke(origin, true, false) }
+                .setNegativeButton(R.string.permission_deny) { _, _ -> callback.invoke(origin, false, false) }
+                .setOnCancelListener { callback.invoke(origin, false, false) }
+                .show()
         }
 
         override fun onEnterFullscreen(fullscreenView: View, onExit: () -> Unit) {
@@ -521,6 +673,7 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        persistTabs()
         tabManager.onPause()
         super.onPause()
     }

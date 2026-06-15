@@ -1,7 +1,11 @@
 package com.tdarby.comet.web
 
+import android.net.Uri
 import android.os.Message
 import android.view.View
+import android.webkit.GeolocationPermissions
+import android.webkit.PermissionRequest
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -53,6 +57,23 @@ class BrowserWebChromeClient(
 
     override fun onReceivedTitle(view: WebView, title: String?) {
         callbacks.onTitleChanged(title)
+    }
+
+    override fun onShowFileChooser(
+        webView: WebView,
+        filePathCallback: ValueCallback<Array<Uri>>,
+        fileChooserParams: FileChooserParams
+    ): Boolean = callbacks.onShowFileChooser(filePathCallback, fileChooserParams)
+
+    override fun onPermissionRequest(request: PermissionRequest) {
+        callbacks.onPermissionRequest(request)
+    }
+
+    override fun onGeolocationPermissionsShowPrompt(
+        origin: String,
+        callback: GeolocationPermissions.Callback
+    ) {
+        callbacks.onGeolocationPrompt(origin, callback)
     }
 
     override fun onShowCustomView(view: View, callback: CustomViewCallback) {

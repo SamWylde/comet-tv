@@ -1,6 +1,11 @@
 package com.tdarby.comet.web
 
+import android.net.Uri
 import android.view.ViewGroup
+import android.webkit.GeolocationPermissions
+import android.webkit.PermissionRequest
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
 import android.widget.FrameLayout
 import com.tdarby.comet.engine.BrowserEngine
 import com.tdarby.comet.engine.EngineCallbacks
@@ -188,5 +193,40 @@ class TabManager(
         override fun onDownloadRequested(url: String, userAgent: String?, mimeType: String?) {
             if (isActive(tab)) ui.onDownloadRequested(url, userAgent, mimeType)
         }
+
+        override fun onShowFileChooser(
+            filePathCallback: ValueCallback<Array<Uri>>,
+            params: WebChromeClient.FileChooserParams
+        ): Boolean =
+            if (isActive(tab)) ui.onShowFileChooser(filePathCallback, params) else false
+
+        override fun onPermissionRequest(request: PermissionRequest) =
+            if (isActive(tab)) ui.onPermissionRequest(request) else request.deny()
+
+        override fun onGeolocationPrompt(origin: String, callback: GeolocationPermissions.Callback) =
+            if (isActive(tab)) ui.onGeolocationPrompt(origin, callback)
+            else callback.invoke(origin, false, false)
+    }
+
+    /** A persisted tab: just its URL and title (engine history/scroll is not snapshotted). */
+    data class TabSnapshot(val url: String, val title: String)
+
+    fun snapshot(): List<TabSnapshot> = tabs.map { TabSnapshot(it.url, it.title) }
+
+    /** Recreate tabs from a saved [snaps] list and select [active]; falls back to one home tab. */
+    fun restore(snaps: List<TabSnapshot>, active: Int) {
+        if (snaps.isEmpty()) { newTab(homeUrl); return }
+        snaps.forEach { s ->
+            val tab = Tab()
+            tab.engine = create(wrap(tab))
+            init(tab.engine)
+            tab.title = s.title
+            tab.url = s.url
+            tabs.add(tab)
+            tab.engine.loadUrl(s.url.ifBlank { homeUrl })
+        }
+        activeIndex = -1
+        setActive(active.coerceIn(0, tabs.size - 1))
+        onChanged()
     }
 }
