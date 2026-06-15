@@ -3,6 +3,7 @@ package com.tdarby.comet.data
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -32,6 +33,8 @@ class SettingsStore(context: Context) {
     val blockRedirects: Flow<Boolean> = ds.data.map { it[KEY_BLOCK_REDIRECTS] ?: false }
     val allowlist: Flow<Set<String>> = ds.data.map { it[KEY_ALLOWLIST] ?: emptySet() }
     val searchTemplate: Flow<String> = ds.data.map { it[KEY_SEARCH] ?: DEFAULT_SEARCH }
+    val cursorSpeed: Flow<Int> = ds.data.map { it[KEY_CURSOR_SPEED] ?: DEFAULT_CURSOR_SPEED }
+    val directNav: Flow<Boolean> = ds.data.map { it[KEY_DIRECT_NAV] ?: false }
 
     suspend fun engineTypeNow(): EngineType = engineType.first()
     suspend fun desktopModeNow(): Boolean = desktopMode.first()
@@ -41,6 +44,8 @@ class SettingsStore(context: Context) {
     suspend fun blockRedirectsNow(): Boolean = blockRedirects.first()
     suspend fun allowlistNow(): Set<String> = allowlist.first()
     suspend fun searchTemplateNow(): String = searchTemplate.first()
+    suspend fun cursorSpeedNow(): Int = cursorSpeed.first()
+    suspend fun directNavNow(): Boolean = directNav.first()
 
     suspend fun setSearchTemplate(template: String) = ds.edit { it[KEY_SEARCH] = template }
 
@@ -56,6 +61,8 @@ class SettingsStore(context: Context) {
     suspend fun setBlockCosmetic(enabled: Boolean) = ds.edit { it[KEY_BLOCK_COSMETIC] = enabled }
     suspend fun setBlockPopups(enabled: Boolean) = ds.edit { it[KEY_BLOCK_POPUPS] = enabled }
     suspend fun setBlockRedirects(enabled: Boolean) = ds.edit { it[KEY_BLOCK_REDIRECTS] = enabled }
+    suspend fun setCursorSpeed(value: Int) = ds.edit { it[KEY_CURSOR_SPEED] = value }
+    suspend fun setDirectNav(enabled: Boolean) = ds.edit { it[KEY_DIRECT_NAV] = enabled }
 
     suspend fun setSiteAllowlisted(host: String, allowlisted: Boolean) {
         ds.edit { prefs ->
@@ -74,7 +81,11 @@ class SettingsStore(context: Context) {
         private val KEY_BLOCK_REDIRECTS = booleanPreferencesKey("block_redirects")
         private val KEY_ALLOWLIST = stringSetPreferencesKey("allowlist_hosts")
         private val KEY_SEARCH = stringPreferencesKey("search_template")
+        private val KEY_CURSOR_SPEED = intPreferencesKey("cursor_speed")
+        private val KEY_DIRECT_NAV = booleanPreferencesKey("direct_nav")
 
         const val DEFAULT_SEARCH = "https://www.google.com/search?q=%s"
+        /** Cursor speed slider value 1..5 (3 = normal). */
+        const val DEFAULT_CURSOR_SPEED = 3
     }
 }
