@@ -62,6 +62,7 @@ class WebViewEngine(
     override fun goForward() = webView.goForward()
     override fun reload() = webView.reload()
     override fun stop() = webView.stopLoading()
+    override fun verticalScrollOffset(): Int = webView.scrollY
 
     override fun setDesktopMode(enabled: Boolean) {
         webView.settings.userAgentString = if (enabled) DESKTOP_UA else null

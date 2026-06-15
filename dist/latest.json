@@ -1,18 +1,18 @@
 {
   "webview": {
-    "versionCode": 3,
-    "versionName": "1.0.2",
+    "versionCode": 4,
+    "versionName": "1.0.3",
     "apkUrl": "https://github.com/SamWylde/comet-tv/releases/latest/download/app-webview-universal-release.apk",
-    "sha256": "7db6e8538cea53469d8d086969c9279448fad4de1ec0aba93c46f21fe5b4e3fb",
-    "notes": "Fix: APK now installs on 32-bit Android TV (armeabi-v7a, e.g. Chromecast with Google TV HD) via a universal APK. Plus stronger ad/redirect blocking: upgraded hostname filter list (HaGeZi), block forced cross-site player redirects, and a new optional 'Block all page redirects (strict)' toggle in Settings.",
+    "sha256": "abc70ec7696b4e4266d3ba78f9223819d526db8eaf912914b014c3fe7d80a5bd",
+    "notes": "Default search + home page is now Google. Address bar is reachable: it's focused at launch, BACK returns to it from the page, and RIGHT reaches the menu/Settings. Smoother page scrolling (mouse-wheel) in cursor mode. Installs on any ABI (universal APK).",
     "required": false
   },
   "full": {
-    "versionCode": 3,
-    "versionName": "1.0.2",
+    "versionCode": 4,
+    "versionName": "1.0.3",
     "apkUrl": "https://github.com/SamWylde/comet-tv/releases/latest/download/app-full-arm64-v8a-release.apk",
-    "sha256": "f89638c6075babbfcf12d5e9683a6df257689af52ffde9747605240b88e77a00",
-    "notes": "Fix: per-ABI APKs now include 32-bit armeabi-v7a (use the webview build on low-end 32-bit boxes). Plus stronger ad/redirect blocking: upgraded hostname filter list (HaGeZi) and block forced cross-site player redirects (WebView engine). Note: the 'Block all page redirects' toggle is not yet active on the GeckoView engine.",
+    "sha256": "c77a59d64461bfb9de45f1f6ab8bec27d9a98eb3a02fa42852319aff5881e54d",
+    "notes": "Default search + home page is now Google. Address bar reachable (focused at launch, BACK returns to it, RIGHT reaches menu/Settings). Smoother scrolling. Per-ABI APKs incl. 32-bit armeabi-v7a. Note: the 'Block all page redirects' toggle is WebView-only.",
     "required": false
   }
 }

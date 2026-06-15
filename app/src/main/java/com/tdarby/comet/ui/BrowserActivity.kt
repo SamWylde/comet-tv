@@ -112,11 +112,15 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     private fun setupCursorFocus() {
-        // Moving focus down into the page area turns the cursor on.
+        // Moving focus down into the page area turns the cursor on; moving focus back up to the
+        // toolbar turns it off so the pointer doesn't linger over the page while you're in the bar.
         binding.engineContainer.setOnFocusChangeListener { _, hasFocus ->
             if (hasFocus && !cursor.active) cursor.setActive(true)
+            else if (!hasFocus && cursor.active) cursor.setActive(false)
         }
-        binding.engineContainer.post { binding.engineContainer.requestFocus() }
+        // Start focused on the address bar so the user can immediately type a URL (press DOWN to
+        // drop into the page, which switches on the D-pad cursor).
+        binding.urlBar.post { binding.urlBar.requestFocus() }
     }
 
     private fun setCursor(active: Boolean) {
@@ -371,13 +375,25 @@ class BrowserActivity : AppCompatActivity() {
         if (!cursor.active) return super.dispatchKeyEvent(event)
 
         when (event.keyCode) {
+            KeyEvent.KEYCODE_DPAD_UP -> {
+                if (event.action == KeyEvent.ACTION_DOWN) {
+                    // At the very top of the page, one more UP leaves the page and focuses the
+                    // address bar — an always-available way back to the URL (besides long-press OK).
+                    if (cursor.atTopEdge() && engine.verticalScrollOffset() <= 0) {
+                        setCursor(false)
+                    } else {
+                        cursor.move(0, -1, event.repeatCount)
+                    }
+                }
+                return true
+            }
+
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
-            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
+            KeyEvent.KEYCODE_DPAD_DOWN -> {
                 if (event.action == KeyEvent.ACTION_DOWN) {
                     val (dx, dy) = when (event.keyCode) {
                         KeyEvent.KEYCODE_DPAD_LEFT -> -1 to 0
                         KeyEvent.KEYCODE_DPAD_RIGHT -> 1 to 0
-                        KeyEvent.KEYCODE_DPAD_UP -> 0 to -1
                         else -> 0 to 1
                     }
                     cursor.move(dx, dy, event.repeatCount)
@@ -406,6 +422,10 @@ class BrowserActivity : AppCompatActivity() {
             override fun handleOnBackPressed() {
                 when {
                     isFullscreen -> exitFullscreen?.invoke()
+                    // In page-cursor mode, BACK first returns to the toolbar/address bar (reliable,
+                    // single press — unlike long-press OK, which needs key auto-repeat some remotes
+                    // don't emit). Press BACK again to actually go back in history.
+                    cursor.active -> setCursor(false)
                     engine.canGoBack() -> engine.goBack()
                     tabManager.count > 1 -> tabManager.closeActive()
                     else -> {
@@ -511,6 +531,6 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     companion object {
-        private const val HOME_URL = "https://duckduckgo.com/"
+        private const val HOME_URL = "https://www.google.com/"
     }
 }
