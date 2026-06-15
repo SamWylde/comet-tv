@@ -1,18 +1,18 @@
 {
   "webview": {
-    "versionCode": 2,
-    "versionName": "1.0.1",
-    "apkUrl": "https://github.com/SamWylde/comet-tv/releases/latest/download/app-webview-arm64-v8a-release.apk",
-    "sha256": "1a1c67f68d8838748835f8d03e2230d7c02adfa4a1804565d951a0c4e3fd4ab4",
-    "notes": "Stronger ad/redirect blocking: upgraded hostname filter list (HaGeZi), block forced cross-site player redirects, and a new optional 'Block all page redirects (strict)' toggle in Settings.",
+    "versionCode": 3,
+    "versionName": "1.0.2",
+    "apkUrl": "https://github.com/SamWylde/comet-tv/releases/latest/download/app-webview-universal-release.apk",
+    "sha256": "7db6e8538cea53469d8d086969c9279448fad4de1ec0aba93c46f21fe5b4e3fb",
+    "notes": "Fix: APK now installs on 32-bit Android TV (armeabi-v7a, e.g. Chromecast with Google TV HD) via a universal APK. Plus stronger ad/redirect blocking: upgraded hostname filter list (HaGeZi), block forced cross-site player redirects, and a new optional 'Block all page redirects (strict)' toggle in Settings.",
     "required": false
   },
   "full": {
-    "versionCode": 2,
-    "versionName": "1.0.1",
+    "versionCode": 3,
+    "versionName": "1.0.2",
     "apkUrl": "https://github.com/SamWylde/comet-tv/releases/latest/download/app-full-arm64-v8a-release.apk",
-    "sha256": "e64bb15bca07b67cf501010f5f2be270cd78411ac80505fba223c781993ff29b",
-    "notes": "Stronger ad/redirect blocking: upgraded hostname filter list (HaGeZi) and block forced cross-site player redirects (WebView engine). Note: the 'Block all page redirects' toggle is not yet active on the GeckoView engine.",
+    "sha256": "f89638c6075babbfcf12d5e9683a6df257689af52ffde9747605240b88e77a00",
+    "notes": "Fix: per-ABI APKs now include 32-bit armeabi-v7a (use the webview build on low-end 32-bit boxes). Plus stronger ad/redirect blocking: upgraded hostname filter list (HaGeZi) and block forced cross-site player redirects (WebView engine). Note: the 'Block all page redirects' toggle is not yet active on the GeckoView engine.",
     "required": false
   }
 }
