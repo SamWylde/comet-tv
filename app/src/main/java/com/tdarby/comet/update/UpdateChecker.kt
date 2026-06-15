@@ -98,8 +98,9 @@ class UpdateChecker(private val context: Context) {
     }
 
     companion object {
-        // TODO: point at your GitHub Releases/Pages manifest once the repo exists.
+        // Hosted manifest (raw GitHub on the default branch). Bump versionCode + sha256 here on
+        // each release; apkUrl uses the permanent /releases/latest/download/ redirect.
         const val MANIFEST_URL =
-            "https://raw.githubusercontent.com/OWNER/REPO/main/dist/latest.json"
+            "https://raw.githubusercontent.com/SamWylde/comet-tv/main/dist/latest.json"
     }
 }

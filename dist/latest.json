@@ -2,16 +2,16 @@
   "webview": {
     "versionCode": 1,
     "versionName": "1.0.0",
-    "apkUrl": "https://github.com/OWNER/REPO/releases/download/v1.0.0/comet-webview-arm64-v8a-release.apk",
-    "sha256": "",
+    "apkUrl": "https://github.com/SamWylde/comet-tv/releases/latest/download/app-webview-arm64-v8a-release.apk",
+    "sha256": "4faea0d90f49b87ee4be84c90d6eca18dc6d5143e1170538c2b3fafddbe29806",
     "notes": "Initial release.",
     "required": false
   },
   "full": {
     "versionCode": 1,
     "versionName": "1.0.0",
-    "apkUrl": "https://github.com/OWNER/REPO/releases/download/v1.0.0/comet-full-arm64-v8a-release.apk",
-    "sha256": "",
+    "apkUrl": "https://github.com/SamWylde/comet-tv/releases/latest/download/app-full-arm64-v8a-release.apk",
+    "sha256": "b4aa35248eebfb09898a7daeb37892cb402ca075b08dee239eb1d0f2c0888099",
     "notes": "Initial release (WebView + GeckoView).",
     "required": false
   }
