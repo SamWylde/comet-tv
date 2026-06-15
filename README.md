@@ -11,26 +11,26 @@ fullscreen HTML5 video playback.
 
 Open the **Downloader** app on your Fire TV / Google TV and enter this code:
 
-> # Downloader code: `3534316`
+> # Downloader code: `2453488`
 
 | | |
 |---|---|
-| **Downloader code** | `3534316` |
-| **Short URL** | `aftv.news/3534316` |
-| **Direct (always latest)** | `https://github.com/SamWylde/comet-tv/releases/latest/download/app-webview-arm64-v8a-release.apk` |
-| **Info page** | `aftv.news/3534316+` |
+| **Downloader code** | `2453488` |
+| **Short URL** | `aftv.news/2453488` |
+| **Direct (always latest)** | `https://github.com/SamWylde/comet-tv/releases/latest/download/app-webview-universal-release.apk` |
+| **Info page** | `aftv.news/2453488+` |
 
 **Steps:**
 1. Install the **Downloader** app (by AFTVnews) from your TV's app store, and open it.
-2. In the URL/Home box, type **`3534316`** and press **Go** (or enter `aftv.news/3534316`).
+2. In the URL/Home box, type **`2453488`** and press **Go** (or enter `aftv.news/2453488`).
 3. Let it download, then choose **Install**. First time only, Android will ask to **allow Downloader
    to install unknown apps** — enable it, go back, and Install.
 4. Delete the APK when prompted (saves space). **Comet** now appears in your apps row.
 
 Notes:
-- This is the slim **arm64** WebView build (~3 MB) — correct for virtually all current Fire TV /
-  Google TV hardware.
-- The code/URL are **permanent**: they always point to the newest release, so the same `3534316`
+- This is the **universal** WebView build (~3 MB) — installs on any CPU, including 32-bit devices
+  like the Chromecast with Google TV HD as well as all 64-bit Fire TV / Google TV hardware.
+- The code/URL are **permanent**: they always point to the newest release, so the same `2453488`
   keeps working after every update (no need to re-issue it).
 - Prefer the GeckoView build? Use the `full` APK from the
   [latest release](https://github.com/SamWylde/comet-tv/releases/latest) (~185 MB).
@@ -84,13 +84,13 @@ adb shell monkey -p com.tdarby.comet -c android.intent.category.LEANBACK_LAUNCHE
 ```
 
 ## Run on a real Google/Android TV device
-- **Easiest:** use the Downloader app with code **`3534316`** (see [Install on your TV](#-install-on-your-tv-downloader)).
+- **Easiest:** use the Downloader app with code **`2453488`** (see [Install on your TV](#-install-on-your-tv-downloader)).
 - **Developer:** enable Developer options + ADB debugging on the TV, then
   `adb connect <tv-ip>:5555` and `adb install -r <apk>`.
 
 ## Release build & distribution
 ```bash
-# Signed release APKs (R8 minify + per-ABI splits: arm64-v8a, x86_64)
+# Signed release APKs (R8 minify + per-ABI splits: armeabi-v7a, arm64-v8a, x86_64 + a universal APK)
 ./gradlew :app:assembleWebviewRelease :app:assembleFullRelease
 ```
 Signing reads `keystore.properties` (gitignored). Outputs:
@@ -100,15 +100,24 @@ Signing reads `keystore.properties` (gitignored). Outputs:
 > are gitignored dev-only credentials. For a real release, generate a keystore **outside** the repo,
 > reference it via `keystore.properties`, and never commit it. Rotate any dev cert before publishing.
 
-**Publish a new version (the Downloader code `3534316` stays the same forever):**
+**Publish a new version (the Downloader code `2453488` stays the same forever):**
 1. Bump `versionCode`/`versionName` in `app/build.gradle.kts`, build, and create a GitHub Release —
-   **keep the asset filenames identical** (no version in the name):
+   **keep the asset filenames identical** (no version in the name), and upload every ABI plus the
+   universal APK:
    ```bash
-   gh release create vX.Y.Z app/build/outputs/apk/webview/release/app-webview-arm64-v8a-release.apk
+   gh release create vX.Y.Z --latest \
+     app/build/outputs/apk/webview/release/app-webview-universal-release.apk \
+     app/build/outputs/apk/webview/release/app-webview-armeabi-v7a-release.apk \
+     app/build/outputs/apk/webview/release/app-webview-arm64-v8a-release.apk \
+     app/build/outputs/apk/webview/release/app-webview-x86_64-release.apk \
+     app/build/outputs/apk/full/release/app-full-arm64-v8a-release.apk \
+     app/build/outputs/apk/full/release/app-full-armeabi-v7a-release.apk \
+     app/build/outputs/apk/full/release/app-full-x86_64-release.apk
    ```
-   Because the filename is constant, `…/releases/latest/download/app-webview-arm64-v8a-release.apk`
-   always serves the newest build — which is exactly what the permanent `aftv.news/3534316` code points
-   at. Don't mark releases as *pre-release* (`/latest/` skips those).
+   Because the filename is constant, `…/releases/latest/download/app-webview-universal-release.apk`
+   always serves the newest build — which is exactly what the permanent `aftv.news/2453488` code points
+   at. The **universal** APK installs on any CPU (incl. 32-bit boxes like the Chromecast with Google TV
+   HD), so it's the right default. Don't mark releases as *pre-release* (`/latest/` skips those).
 2. (For the in-app updater) Update [dist/latest.json](dist/latest.json) with the new `versionCode`,
    `versionName`, per-flavor `apkUrl`, and `sha256` (`sha256sum app-...-release.apk`). **`sha256` is
    mandatory** — the updater refuses to install an APK without a matching hash. Point
