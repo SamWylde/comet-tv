@@ -29,6 +29,7 @@ class SettingsStore(context: Context) {
     val blockNetwork: Flow<Boolean> = ds.data.map { it[KEY_BLOCK_NETWORK] ?: true }
     val blockCosmetic: Flow<Boolean> = ds.data.map { it[KEY_BLOCK_COSMETIC] ?: true }
     val blockPopups: Flow<Boolean> = ds.data.map { it[KEY_BLOCK_POPUPS] ?: true }
+    val blockRedirects: Flow<Boolean> = ds.data.map { it[KEY_BLOCK_REDIRECTS] ?: false }
     val allowlist: Flow<Set<String>> = ds.data.map { it[KEY_ALLOWLIST] ?: emptySet() }
     val searchTemplate: Flow<String> = ds.data.map { it[KEY_SEARCH] ?: DEFAULT_SEARCH }
 
@@ -37,6 +38,7 @@ class SettingsStore(context: Context) {
     suspend fun blockNetworkNow(): Boolean = blockNetwork.first()
     suspend fun blockCosmeticNow(): Boolean = blockCosmetic.first()
     suspend fun blockPopupsNow(): Boolean = blockPopups.first()
+    suspend fun blockRedirectsNow(): Boolean = blockRedirects.first()
     suspend fun allowlistNow(): Set<String> = allowlist.first()
     suspend fun searchTemplateNow(): String = searchTemplate.first()
 
@@ -53,6 +55,7 @@ class SettingsStore(context: Context) {
     suspend fun setBlockNetwork(enabled: Boolean) = ds.edit { it[KEY_BLOCK_NETWORK] = enabled }
     suspend fun setBlockCosmetic(enabled: Boolean) = ds.edit { it[KEY_BLOCK_COSMETIC] = enabled }
     suspend fun setBlockPopups(enabled: Boolean) = ds.edit { it[KEY_BLOCK_POPUPS] = enabled }
+    suspend fun setBlockRedirects(enabled: Boolean) = ds.edit { it[KEY_BLOCK_REDIRECTS] = enabled }
 
     suspend fun setSiteAllowlisted(host: String, allowlisted: Boolean) {
         ds.edit { prefs ->
@@ -68,6 +71,7 @@ class SettingsStore(context: Context) {
         private val KEY_BLOCK_NETWORK = booleanPreferencesKey("block_network")
         private val KEY_BLOCK_COSMETIC = booleanPreferencesKey("block_cosmetic")
         private val KEY_BLOCK_POPUPS = booleanPreferencesKey("block_popups")
+        private val KEY_BLOCK_REDIRECTS = booleanPreferencesKey("block_redirects")
         private val KEY_ALLOWLIST = stringSetPreferencesKey("allowlist_hosts")
         private val KEY_SEARCH = stringPreferencesKey("search_template")
 

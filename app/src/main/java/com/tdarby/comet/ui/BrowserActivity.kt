@@ -78,6 +78,7 @@ class BrowserActivity : AppCompatActivity() {
             AdBlocker.networkEnabled = settings.blockNetworkNow()
             AdBlocker.cosmeticEnabled = settings.blockCosmeticNow()
             AdBlocker.popupEnabled = settings.blockPopupsNow()
+            AdBlocker.redirectBlockEnabled = settings.blockRedirectsNow()
             AdBlocker.setAllowlist(settings.allowlistNow())
         }
 
@@ -300,6 +301,7 @@ class BrowserActivity : AppCompatActivity() {
         dlg.switchBlockNetwork.isChecked = AdBlocker.networkEnabled
         dlg.switchBlockCosmetic.isChecked = AdBlocker.cosmeticEnabled
         dlg.switchBlockPopups.isChecked = AdBlocker.popupEnabled
+        dlg.switchBlockRedirects.isChecked = AdBlocker.redirectBlockEnabled
 
         val host = currentHost
         dlg.switchAllowSite.isEnabled = host != null
@@ -323,6 +325,7 @@ class BrowserActivity : AppCompatActivity() {
                 AdBlocker.networkEnabled = dlg.switchBlockNetwork.isChecked
                 AdBlocker.cosmeticEnabled = dlg.switchBlockCosmetic.isChecked
                 AdBlocker.popupEnabled = dlg.switchBlockPopups.isChecked
+                AdBlocker.redirectBlockEnabled = dlg.switchBlockRedirects.isChecked
                 tabManager.forEachEngine {
                     it.setBlockingEnabled(AdBlocker.networkEnabled)
                     it.applyPopupPolicy()
@@ -341,6 +344,7 @@ class BrowserActivity : AppCompatActivity() {
                     settings.setBlockNetwork(AdBlocker.networkEnabled)
                     settings.setBlockCosmetic(AdBlocker.cosmeticEnabled)
                     settings.setBlockPopups(AdBlocker.popupEnabled)
+                    settings.setBlockRedirects(AdBlocker.redirectBlockEnabled)
                     if (host != null) settings.setSiteAllowlisted(host, allowChecked)
                 }
 

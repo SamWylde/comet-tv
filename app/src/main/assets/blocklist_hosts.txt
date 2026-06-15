@@ -92,3 +92,13 @@ demdex.net
 rlcdn.com
 crwdcntrl.net
 agkn.com
+
+# --- Forced-redirect / affiliate smartlink hosts (stream-page player overlays) ---
+voluum.com
+voluumtrk.com
+voluumtrk2.com
+voluumtrk3.com
+voluumtrk4.com
+voluumtrk5.com
+voluumtrk6.com
+togglevpn.org

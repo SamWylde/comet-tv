@@ -1,18 +1,18 @@
 {
   "webview": {
-    "versionCode": 1,
-    "versionName": "1.0.0",
+    "versionCode": 2,
+    "versionName": "1.0.1",
     "apkUrl": "https://github.com/SamWylde/comet-tv/releases/latest/download/app-webview-arm64-v8a-release.apk",
-    "sha256": "4faea0d90f49b87ee4be84c90d6eca18dc6d5143e1170538c2b3fafddbe29806",
-    "notes": "Initial release.",
+    "sha256": "1a1c67f68d8838748835f8d03e2230d7c02adfa4a1804565d951a0c4e3fd4ab4",
+    "notes": "Stronger ad/redirect blocking: upgraded hostname filter list (HaGeZi), block forced cross-site player redirects, and a new optional 'Block all page redirects (strict)' toggle in Settings.",
     "required": false
   },
   "full": {
-    "versionCode": 1,
-    "versionName": "1.0.0",
+    "versionCode": 2,
+    "versionName": "1.0.1",
     "apkUrl": "https://github.com/SamWylde/comet-tv/releases/latest/download/app-full-arm64-v8a-release.apk",
-    "sha256": "b4aa35248eebfb09898a7daeb37892cb402ca075b08dee239eb1d0f2c0888099",
-    "notes": "Initial release (WebView + GeckoView).",
+    "sha256": "e64bb15bca07b67cf501010f5f2be270cd78411ac80505fba223c781993ff29b",
+    "notes": "Stronger ad/redirect blocking: upgraded hostname filter list (HaGeZi) and block forced cross-site player redirects (WebView engine). Note: the 'Block all page redirects' toggle is not yet active on the GeckoView engine.",
     "required": false
   }
 }
