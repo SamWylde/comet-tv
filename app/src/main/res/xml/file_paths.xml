@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- The downloaded update APK lives in cacheDir; expose it to the package installer. -->
+    <cache-path
+        name="update_cache"
+        path="." />
+</paths>

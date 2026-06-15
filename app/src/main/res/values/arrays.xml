@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="search_engine_labels">
+        <item>DuckDuckGo</item>
+        <item>Google</item>
+        <item>Bing</item>
+        <item>Brave</item>
+    </string-array>
+</resources>

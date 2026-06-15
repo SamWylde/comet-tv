@@ -1,0 +1,94 @@
+# Comet starter ad/tracker hostname blocklist (base domains).
+# One host per line; subdomains match automatically (e.g. ads.doubleclick.net -> doubleclick.net).
+# Replaceable at runtime by a downloaded filter list (FilterListRepository).
+
+# --- Google ad/analytics ---
+doubleclick.net
+googlesyndication.com
+googleadservices.com
+googletagservices.com
+googletagmanager.com
+google-analytics.com
+adservice.google.com
+pagead2.googlesyndication.com
+partner.googleadservices.com
+
+# --- Major ad exchanges / SSPs ---
+amazon-adsystem.com
+adnxs.com
+rubiconproject.com
+pubmatic.com
+openx.net
+casalemedia.com
+contextweb.com
+indexww.com
+bidswitch.net
+adform.net
+smartadserver.com
+3lift.com
+33across.com
+sharethrough.com
+gumgum.com
+yieldmo.com
+districtm.io
+sonobi.com
+gammaplatform.com
+
+# --- Analytics / measurement ---
+scorecardresearch.com
+quantserve.com
+quantcount.com
+moatads.com
+adsafeprotected.com
+doubleverify.com
+chartbeat.com
+hotjar.com
+mixpanel.com
+segment.com
+branch.io
+
+# --- Native / content recommendation ---
+taboola.com
+outbrain.com
+criteo.com
+criteo.net
+mgid.com
+revcontent.com
+adblade.com
+zergnet.com
+
+# --- Aggressive / popunder / malvertising-prone networks (common on streaming sites) ---
+popads.net
+popcash.net
+propellerads.com
+propellerpops.com
+exoclick.com
+exosrv.com
+juicyads.com
+hilltopads.net
+hilltopads.com
+adsterra.com
+adskeeper.com
+clickadu.com
+trafficjunky.net
+trafficfactory.biz
+poptm.com
+onclickalgo.com
+onclckds.com
+clicksgear.com
+adcash.com
+mybetterdeal.net
+go.bestcontentdelivery.net
+admaven.com
+a-ads.com
+serving-sys.com
+zedo.com
+
+# --- Misc trackers ---
+adsrvr.org
+adroll.com
+bluekai.com
+demdex.net
+rlcdn.com
+crwdcntrl.net
+agkn.com
