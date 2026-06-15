@@ -1,9 +1,12 @@
 package com.tdarby.comet.engine
 
 import android.net.Uri
+import android.net.http.SslError
 import android.view.View
 import android.webkit.GeolocationPermissions
+import android.webkit.HttpAuthHandler
 import android.webkit.PermissionRequest
+import android.webkit.SslErrorHandler
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 
@@ -53,6 +56,15 @@ interface EngineCallbacks {
     /** Page requested the device location. Default: deny. */
     fun onGeolocationPrompt(origin: String, callback: GeolocationPermissions.Callback) =
         callback.invoke(origin, false, false)
+
+    /** Certificate error on the page. Default: cancel (safe). */
+    fun onSslError(handler: SslErrorHandler, error: SslError) = handler.cancel()
+
+    /** Server requested HTTP basic/digest auth. Default: cancel. */
+    fun onHttpAuthRequest(handler: HttpAuthHandler, host: String, realm: String?) = handler.cancel()
+
+    /** A non-http(s) link (intent:/market:/tel:/mailto:/...). Return true if handled externally. */
+    fun onExternalUrl(url: String): Boolean = false
 }
 
 /**

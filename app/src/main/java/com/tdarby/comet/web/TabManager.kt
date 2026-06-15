@@ -1,9 +1,12 @@
 package com.tdarby.comet.web
 
 import android.net.Uri
+import android.net.http.SslError
 import android.view.ViewGroup
 import android.webkit.GeolocationPermissions
+import android.webkit.HttpAuthHandler
 import android.webkit.PermissionRequest
+import android.webkit.SslErrorHandler
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.widget.FrameLayout
@@ -206,6 +209,15 @@ class TabManager(
         override fun onGeolocationPrompt(origin: String, callback: GeolocationPermissions.Callback) =
             if (isActive(tab)) ui.onGeolocationPrompt(origin, callback)
             else callback.invoke(origin, false, false)
+
+        override fun onSslError(handler: SslErrorHandler, error: SslError) =
+            if (isActive(tab)) ui.onSslError(handler, error) else handler.cancel()
+
+        override fun onHttpAuthRequest(handler: HttpAuthHandler, host: String, realm: String?) =
+            if (isActive(tab)) ui.onHttpAuthRequest(handler, host, realm) else handler.cancel()
+
+        override fun onExternalUrl(url: String): Boolean =
+            if (isActive(tab)) ui.onExternalUrl(url) else false
     }
 
     /** A persisted tab: just its URL and title (engine history/scroll is not snapshotted). */
