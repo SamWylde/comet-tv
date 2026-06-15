@@ -32,27 +32,23 @@ Notes:
   like the Chromecast with Google TV HD as well as all 64-bit Fire TV / Google TV hardware.
 - The code/URL are **permanent**: they always point to the newest release, so the same `2453488`
   keeps working after every update (no need to re-issue it).
-- Prefer the GeckoView build? Use the `full` APK from the
-  [latest release](https://github.com/SamWylde/comet-tv/releases/latest) (~185 MB).
 
-## Engines (two build flavors)
-The app abstracts the renderer behind `BrowserEngine` and ships **two engines**, switchable in
-Settings (default: WebView):
-
-| Flavor    | Engines bundled            | Notes |
-|-----------|----------------------------|-------|
-| `webview` | System WebView (Chromium)  | Slim APK (~3 MB). Best video compatibility. |
-| `full`    | System WebView **+ GeckoView** | Adds Gecko's built-in Enhanced Tracking Protection; large APK (~185 MB, GeckoView bundles `libxul.so`). |
+## Engine
+A single rendering engine — the **System WebView (Chromium)** — behind a `BrowserEngine` interface
+(kept as an interface so the engine is easy to swap or mock). Slim APK (~3 MB), best video
+compatibility on TV hardware. (An earlier GeckoView `full` flavor was removed: it was a ~185 MB
+second code path that nobody shipped, and its tracking protection is now covered by the blocklist +
+redirect blocking below.)
 
 ### Ad / tracker blocking (what's actually implemented)
-- **WebView:** request interception against a bundled hostname blocklist (auto-refreshed from a remote
-  hosts list), curated cosmetic CSS hiding, and popup/redirect suppression. This is a hostname-level
-  blocker — **not** an EasyList/uBlock Origin engine (no scriptlets or full cosmetic-filter syntax).
-- **GeckoView:** Gecko's built-in **Enhanced Tracking Protection** (strict) — not a uBlock Origin
-  WebExtension.
-- All three layers (network / cosmetic / popup) are individually toggleable, with a per-site allowlist.
-- A future full-fidelity path (EasyList parser or `adblock-rust`, or uBO under GeckoView) would need a
-  filter-list **license review** first.
+- Request interception against a bundled hostname blocklist (auto-refreshed from a remote hosts list),
+  curated cosmetic CSS hiding, and popup/redirect suppression. This is a hostname-level blocker —
+  **not** an EasyList/uBlock Origin engine (no scriptlets or full cosmetic-filter syntax).
+- An optional **strict "block all page redirects"** mode (off by default) cancels cross-site,
+  page-initiated top navigations — the last resort against stream-page player redirects.
+- All layers (network / cosmetic / popup / redirect) are individually toggleable, with a per-site allowlist.
+- A future full-fidelity path (EasyList parser or `adblock-rust`) would need a filter-list
+  **license review** first.
 
 ## Requirements
 - **JDK 17** (Android Gradle Plugin 8.7 requires it).
@@ -65,21 +61,17 @@ Settings (default: WebView):
 
 ## Build
 ```bash
-# Slim WebView build
-./gradlew :app:assembleWebviewDebug
-
-# Full build (WebView + GeckoView)
-./gradlew :app:assembleFullDebug
+./gradlew :app:assembleDebug
 ```
-Outputs land in `app/build/outputs/apk/<flavor>/debug/`.
+Outputs land in `app/build/outputs/apk/debug/` (per-ABI APKs + a universal APK).
 
 ## Run on the TV emulator
 ```bash
 # Start the Google TV AVD
 $ANDROID_HOME/emulator/emulator -avd googletv
 
-# Install + launch
-adb install -r app/build/outputs/apk/webview/debug/app-webview-debug.apk
+# Install + launch (x86_64 emulator)
+adb install -r app/build/outputs/apk/debug/app-x86_64-debug.apk
 adb shell monkey -p com.tdarby.comet -c android.intent.category.LEANBACK_LAUNCHER 1
 ```
 
@@ -91,10 +83,10 @@ adb shell monkey -p com.tdarby.comet -c android.intent.category.LEANBACK_LAUNCHE
 ## Release build & distribution
 ```bash
 # Signed release APKs (R8 minify + per-ABI splits: armeabi-v7a, arm64-v8a, x86_64 + a universal APK)
-./gradlew :app:assembleWebviewRelease :app:assembleFullRelease
+./gradlew :app:assembleRelease
 ```
 Signing reads `keystore.properties` (gitignored). Outputs:
-`app/build/outputs/apk/<flavor>/release/app-<flavor>-<abi>-release.apk`.
+`app/build/outputs/apk/release/app-<abi>-release.apk` and `app-universal-release.apk`.
 
 > **Signing key:** the repo ships **no** keystore. The local `keystore.properties` / `*.keystore`
 > are gitignored dev-only credentials. For a real release, generate a keystore **outside** the repo,
@@ -102,39 +94,41 @@ Signing reads `keystore.properties` (gitignored). Outputs:
 
 **Publish a new version (the Downloader code `2453488` stays the same forever):**
 1. Bump `versionCode`/`versionName` in `app/build.gradle.kts`, build, and create a GitHub Release —
-   **keep the asset filenames identical** (no version in the name), and upload every ABI plus the
-   universal APK:
+   **keep the asset filenames identical** (no version in the name). The permanent code `2453488` and
+   the updater manifest point at `app-webview-universal-release.apk`, so keep serving that exact name
+   (the simplest path: `cp app-universal-release.apk app-webview-universal-release.apk` before upload):
    ```bash
+   cp app/build/outputs/apk/release/app-universal-release.apk \
+      app/build/outputs/apk/release/app-webview-universal-release.apk
    gh release create vX.Y.Z --latest \
-     app/build/outputs/apk/webview/release/app-webview-universal-release.apk \
-     app/build/outputs/apk/webview/release/app-webview-armeabi-v7a-release.apk \
-     app/build/outputs/apk/webview/release/app-webview-arm64-v8a-release.apk \
-     app/build/outputs/apk/webview/release/app-webview-x86_64-release.apk \
-     app/build/outputs/apk/full/release/app-full-arm64-v8a-release.apk \
-     app/build/outputs/apk/full/release/app-full-armeabi-v7a-release.apk \
-     app/build/outputs/apk/full/release/app-full-x86_64-release.apk
+     app/build/outputs/apk/release/app-webview-universal-release.apk \
+     app/build/outputs/apk/release/app-armeabi-v7a-release.apk \
+     app/build/outputs/apk/release/app-arm64-v8a-release.apk \
+     app/build/outputs/apk/release/app-x86_64-release.apk
    ```
    Because the filename is constant, `…/releases/latest/download/app-webview-universal-release.apk`
-   always serves the newest build — which is exactly what the permanent `aftv.news/2453488` code points
-   at. The **universal** APK installs on any CPU (incl. 32-bit boxes like the Chromecast with Google TV
-   HD), so it's the right default. Don't mark releases as *pre-release* (`/latest/` skips those).
+   always serves the newest build — what the permanent `aftv.news/2453488` code points at. The
+   **universal** APK installs on any CPU (incl. 32-bit boxes like the Chromecast with Google TV HD),
+   so it's the right default. Don't mark releases as *pre-release* (`/latest/` skips those).
 2. (For the in-app updater) Update [dist/latest.json](dist/latest.json) with the new `versionCode`,
-   `versionName`, per-flavor `apkUrl`, and `sha256` (`sha256sum app-...-release.apk`). **`sha256` is
-   mandatory** — the updater refuses to install an APK without a matching hash. Point
-   `UpdateChecker.MANIFEST_URL` at the hosted manifest.
+   `versionName`, `apkUrl`, and `sha256` (`sha256sum app-...-release.apk`). **`sha256` is mandatory**
+   — the updater refuses to install an APK without a matching hash. Point `UpdateChecker.MANIFEST_URL`
+   at the hosted manifest.
 3. After first install, **Menu → Check for updates** handles upgrades in place (compares `versionCode`,
    downloads, verifies SHA-256, launches the installer) — so Downloader is only needed once per device.
 
 ## Status (by milestone)
 - [x] M0 — toolchain + SDK + TV AVD
 - [x] M1 — project scaffold, Leanback launcher, single-engine WebView browser
-- [x] M2 — both engines behind `BrowserEngine` + Settings engine switch
-- [x] M3 — on-screen cursor + D-pad/remote input (long-press OK toggles cursor)
-- [x] M4 — popup/redirect blocking (`PopupGuard` + Gecko `onNewSession`)
+- [x] M2 — single WebView engine behind a `BrowserEngine` interface
+- [x] M3 — on-screen cursor + D-pad/remote input (BACK or long-press OK leaves the cursor)
+- [x] M4 — popup/redirect blocking (`PopupGuard` + main-frame redirect interception)
 - [x] M5 — network + cosmetic ad blocking + per-layer Settings toggles + per-site allowlist + filter updater
 - [x] M6 — bookmarks, history, downloads, search engines, overflow menu, home, desktop-UA toggle
-- [x] M7 — signed release (R8 + ABI splits), release manifest + in-app updater (SHA-256 verified)
+- [x] M7 — signed release (R8 + ABI splits incl. 32-bit + universal), manifest + in-app updater (SHA-256)
+- [x] M8 — open-from-other-apps (VIEW intent), tab session restore, uploads, web-permission prompts,
+  zoom, media keys, voice search, SSL/HTTP-auth prompts, external-app links, long-press context menu,
+  gamepad cursor, configurable cursor speed / direct-nav, blob downloads
 
-> Multi-tab browsing **is** implemented (open/close/switch tabs via the overflow menu and the tab
-> strip). Tabs are kept in memory only — they are **not yet restored across app restarts** — and
-> there is no graphical home-tile grid. Everything above is implemented and builds.
+> Multi-tab browsing is implemented (overflow menu + tab strip) and **tabs are restored across app
+> restarts**. There is no graphical home-tile grid. Everything above is implemented and builds.

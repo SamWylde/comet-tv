@@ -46,10 +46,9 @@ import com.tdarby.comet.databinding.ActivityBrowserBinding
 import com.tdarby.comet.databinding.DialogSettingsBinding
 import com.tdarby.comet.engine.BrowserEngine
 import com.tdarby.comet.engine.EngineCallbacks
-import com.tdarby.comet.engine.EngineFactory
+import com.tdarby.comet.engine.WebViewEngine
 import com.tdarby.comet.data.BrowserStore
 import com.tdarby.comet.data.TabsStore
-import com.tdarby.comet.engine.EngineType
 import com.tdarby.comet.engine.MediaAction
 import com.tdarby.comet.input.CursorController
 import com.tdarby.comet.update.ReleaseManifest
@@ -94,7 +93,6 @@ class BrowserActivity : AppCompatActivity() {
     /** The active tab's engine. A getter keeps every call site engine-agnostic and tab-aware. */
     private val engine: BrowserEngine get() = tabManager.activeEngine
 
-    private lateinit var activeEngineType: EngineType
     private var desktopMode = false
     private var searchTemplate = SettingsStore.DEFAULT_SEARCH
     private var directNav = false
@@ -117,7 +115,6 @@ class BrowserActivity : AppCompatActivity() {
         // Blocklist is loaded once in CometApp.onCreate (FilterListRepository.loadInitial).
         // Small one-shot reads at startup so engine + blocking match the user's saved choices.
         runBlocking {
-            activeEngineType = settings.engineTypeNow()
             desktopMode = settings.desktopModeNow()
             searchTemplate = settings.searchTemplateNow()
             cursorSpeedSetting = settings.cursorSpeedNow()
@@ -136,7 +133,7 @@ class BrowserActivity : AppCompatActivity() {
         tabManager = TabManager(
             container = binding.engineContainer,
             homeUrl = HOME_URL,
-            create = { cb -> EngineFactory.create(this, activeEngineType, cb) },
+            create = { cb -> WebViewEngine(this, cb) },
             init = { e ->
                 e.setDesktopMode(desktopMode)
                 e.setBlockingEnabled(AdBlocker.networkEnabled)
@@ -180,11 +177,6 @@ class BrowserActivity : AppCompatActivity() {
         if (::tabManager.isInitialized && tabManager.hasTabs) {
             tabsStore.save(tabManager.snapshot(), tabManager.activePosition())
         }
-    }
-
-    private fun switchEngine(type: EngineType) {
-        activeEngineType = type
-        tabManager.recreateAll() // rebuilds every tab's engine with the new type
     }
 
     private fun setupCursorFocus() {
@@ -455,12 +447,6 @@ class BrowserActivity : AppCompatActivity() {
 
     private fun showSettings() {
         val dlg = DialogSettingsBinding.inflate(layoutInflater)
-        val geckoAvailable = EngineFactory.isAvailable(EngineType.GECKO)
-        dlg.engineGecko.isEnabled = geckoAvailable
-        if (!geckoAvailable) dlg.engineGecko.text = getString(R.string.engine_unavailable)
-        dlg.engineGroup.check(
-            if (activeEngineType == EngineType.GECKO) R.id.engine_gecko else R.id.engine_webview
-        )
         dlg.switchDesktop.isChecked = desktopMode
 
         val searchAdapter = ArrayAdapter.createFromResource(
@@ -488,9 +474,6 @@ class BrowserActivity : AppCompatActivity() {
             .setTitle(R.string.settings_title)
             .setView(dlg.root)
             .setPositiveButton(R.string.action_apply) { _, _ ->
-                val chosen =
-                    if (dlg.engineGroup.checkedRadioButtonId == R.id.engine_gecko && geckoAvailable)
-                        EngineType.GECKO else EngineType.WEBVIEW
                 val newDesktop = dlg.switchDesktop.isChecked
                 val desktopChanged = newDesktop != desktopMode
                 desktopMode = newDesktop
@@ -515,7 +498,6 @@ class BrowserActivity : AppCompatActivity() {
                 }
 
                 lifecycleScope.launch {
-                    settings.setEngineType(chosen)
                     settings.setDesktopMode(newDesktop)
                     settings.setSearchTemplate(searchTemplate)
                     settings.setBlockNetwork(AdBlocker.networkEnabled)
@@ -527,11 +509,8 @@ class BrowserActivity : AppCompatActivity() {
                     if (host != null) settings.setSiteAllowlisted(host, allowChecked)
                 }
 
-                when {
-                    chosen != activeEngineType -> switchEngine(chosen) // rebuilds tabs w/ new engine
-                    desktopChanged -> tabManager.forEachEngine { it.setDesktopMode(newDesktop) }
-                    else -> engine.reload()
-                }
+                if (desktopChanged) tabManager.forEachEngine { it.setDesktopMode(newDesktop) }
+                else engine.reload()
             }
             .setNegativeButton(R.string.action_cancel, null)
             .show()
@@ -827,8 +806,7 @@ class BrowserActivity : AppCompatActivity() {
         override fun onEnterFullscreen(fullscreenView: View, onExit: () -> Unit) {
             isFullscreen = true
             exitFullscreen = onExit
-            // WebView hands us a detached custom view (overlay it); GeckoView renders fullscreen
-            // inside its own already-attached view (just collapse the chrome around it).
+            // WebView hands us a detached custom view to overlay full-screen.
             overlayFullscreen = fullscreenView.parent == null
             if (overlayFullscreen) {
                 binding.fullscreenContainer.addView(

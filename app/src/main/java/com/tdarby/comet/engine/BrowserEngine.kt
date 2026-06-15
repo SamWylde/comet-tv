@@ -10,9 +10,6 @@ import android.webkit.SslErrorHandler
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 
-/** Which rendering engine backs a tab. Selectable in Settings; `full` flavor adds GECKO. */
-enum class EngineType { WEBVIEW, GECKO }
-
 /** Remote media-key actions routed into the page's <video>/<audio>. */
 enum class MediaAction { PLAY_PAUSE, STOP, REWIND, FORWARD }
 
@@ -68,8 +65,8 @@ interface EngineCallbacks {
 }
 
 /**
- * Engine-agnostic browser surface. Both [WebViewEngine] and (in the `full` flavor) the GeckoView
- * engine implement this so the rest of the app never touches a concrete engine.
+ * Browser surface implemented by [WebViewEngine], so the rest of the app stays decoupled from the
+ * concrete WebView. (Kept as an interface to make the engine easy to swap or mock.)
  */
 interface BrowserEngine {
     /** The view to attach to the tab container. */

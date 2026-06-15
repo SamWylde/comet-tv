@@ -15,12 +15,11 @@ import java.security.MessageDigest
 /**
  * Checks a hosted JSON manifest for a newer build of the current flavor, downloads the APK,
  * verifies its SHA-256, and launches the system package installer (user-confirmed). Never installs
- * silently. The manifest is keyed by flavor:
+ * silently. The manifest holds a single "webview" entry:
  *
  * ```json
  * { "webview": { "versionCode": 2, "versionName": "1.1.0", "apkUrl": "...", "sha256": "...",
- *                "notes": "...", "required": false },
- *   "full":    { ... } }
+ *                "notes": "...", "required": false } }
  * ```
  */
 class UpdateChecker(private val context: Context) {
@@ -28,7 +27,7 @@ class UpdateChecker(private val context: Context) {
     suspend fun check(): ReleaseManifest? = withContext(Dispatchers.IO) {
         runCatching {
             val text = readUrl(MANIFEST_URL) ?: return@runCatching null
-            val flavor = JSONObject(text).optJSONObject(BuildConfig.FLAVOR_LABEL)
+            val flavor = JSONObject(text).optJSONObject("webview")
                 ?: return@runCatching null
             ReleaseManifest(
                 versionCode = flavor.getInt("versionCode"),

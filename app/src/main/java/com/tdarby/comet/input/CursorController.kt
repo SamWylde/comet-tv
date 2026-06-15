@@ -14,7 +14,7 @@ import kotlin.math.min
  * On-screen mouse cursor for D-pad remotes. Web pages (especially video players) aren't D-pad
  * focusable, so we float a pointer over the engine view, move it with the D-pad, and translate
  * OK presses into synthetic taps. Pushing the pointer against an edge scrolls the page via a
- * synthetic drag. Engine-agnostic: both WebView and GeckoView consume the dispatched touches.
+ * synthetic drag/scroll events, which the WebView consumes.
  *
  * @param container the engine container; the pointer is added on top and coordinates map 1:1 to
  *                  the engine view (which fills the container).

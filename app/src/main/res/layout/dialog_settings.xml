@@ -9,38 +9,6 @@
         android:orientation="vertical"
         android:padding="24dp">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/settings_engine"
-            android:textStyle="bold" />
-
-        <RadioGroup
-            android:id="@+id/engine_group"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp">
-
-            <RadioButton
-                android:id="@+id/engine_webview"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/engine_webview" />
-
-            <RadioButton
-                android:id="@+id/engine_gecko"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/engine_gecko" />
-        </RadioGroup>
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginTop="12dp"
-            android:layout_marginBottom="12dp"
-            android:background="#33FFFFFF" />
-
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
