@@ -7,6 +7,34 @@ fullscreen HTML5 video playback.
 > General-purpose browser. It renders sites the way Chrome/Firefox do and contains **no**
 > DRM/anti-circumvention bypass, stream extraction, or paywall-bypass logic.
 
+## 📺 Install on your TV (Downloader)
+
+Open the **Downloader** app on your Fire TV / Google TV and enter this code:
+
+> # Downloader code: `3534316`
+
+| | |
+|---|---|
+| **Downloader code** | `3534316` |
+| **Short URL** | `aftv.news/3534316` |
+| **Direct (always latest)** | `https://github.com/SamWylde/comet-tv/releases/latest/download/app-webview-arm64-v8a-release.apk` |
+| **Info page** | `aftv.news/3534316+` |
+
+**Steps:**
+1. Install the **Downloader** app (by AFTVnews) from your TV's app store, and open it.
+2. In the URL/Home box, type **`3534316`** and press **Go** (or enter `aftv.news/3534316`).
+3. Let it download, then choose **Install**. First time only, Android will ask to **allow Downloader
+   to install unknown apps** — enable it, go back, and Install.
+4. Delete the APK when prompted (saves space). **Comet** now appears in your apps row.
+
+Notes:
+- This is the slim **arm64** WebView build (~3 MB) — correct for virtually all current Fire TV /
+  Google TV hardware.
+- The code/URL are **permanent**: they always point to the newest release, so the same `3534316`
+  keeps working after every update (no need to re-issue it).
+- Prefer the GeckoView build? Use the `full` APK from the
+  [latest release](https://github.com/SamWylde/comet-tv/releases/latest) (~185 MB).
+
 ## Engines (two build flavors)
 The app abstracts the renderer behind `BrowserEngine` and ships **two engines**, switchable in
 Settings (default: WebView):
@@ -56,9 +84,9 @@ adb shell monkey -p com.tdarby.comet -c android.intent.category.LEANBACK_LAUNCHE
 ```
 
 ## Run on a real Google/Android TV device
-1. Enable Developer options + ADB debugging on the TV.
-2. `adb connect <tv-ip>:5555` then `adb install -r <apk>`, **or** sideload the APK via the
-   Downloader app using its hosted URL (see distribution, Milestone 7).
+- **Easiest:** use the Downloader app with code **`3534316`** (see [Install on your TV](#-install-on-your-tv-downloader)).
+- **Developer:** enable Developer options + ADB debugging on the TV, then
+  `adb connect <tv-ip>:5555` and `adb install -r <apk>`.
 
 ## Release build & distribution
 ```bash
@@ -72,15 +100,21 @@ Signing reads `keystore.properties` (gitignored). Outputs:
 > are gitignored dev-only credentials. For a real release, generate a keystore **outside** the repo,
 > reference it via `keystore.properties`, and never commit it. Rotate any dev cert before publishing.
 
-**Publish + sideload:**
-1. Upload the per-ABI APKs to a **GitHub Release** (`vX.Y.Z`).
-2. Update [dist/latest.json](dist/latest.json) with the new `versionCode`, `versionName`, per-flavor
-   `apkUrl`, and `sha256` (`sha256sum app-...-release.apk`). **`sha256` is mandatory** — the in-app
-   updater refuses to install an APK without a matching hash. Host the manifest (GitHub Pages or raw),
-   and point `UpdateChecker.MANIFEST_URL` at it.
-3. For first install, give users a **short-link** that 302-redirects to the arm64 APK so it's typeable
-   in **Downloader**. After that, the in-app updater (**Menu → Check for updates**) handles upgrades:
-   it compares `versionCode`, downloads, **verifies SHA-256**, and launches the installer (user-confirmed).
+**Publish a new version (the Downloader code `3534316` stays the same forever):**
+1. Bump `versionCode`/`versionName` in `app/build.gradle.kts`, build, and create a GitHub Release —
+   **keep the asset filenames identical** (no version in the name):
+   ```bash
+   gh release create vX.Y.Z app/build/outputs/apk/webview/release/app-webview-arm64-v8a-release.apk
+   ```
+   Because the filename is constant, `…/releases/latest/download/app-webview-arm64-v8a-release.apk`
+   always serves the newest build — which is exactly what the permanent `aftv.news/3534316` code points
+   at. Don't mark releases as *pre-release* (`/latest/` skips those).
+2. (For the in-app updater) Update [dist/latest.json](dist/latest.json) with the new `versionCode`,
+   `versionName`, per-flavor `apkUrl`, and `sha256` (`sha256sum app-...-release.apk`). **`sha256` is
+   mandatory** — the updater refuses to install an APK without a matching hash. Point
+   `UpdateChecker.MANIFEST_URL` at the hosted manifest.
+3. After first install, **Menu → Check for updates** handles upgrades in place (compares `versionCode`,
+   downloads, verifies SHA-256, launches the installer) — so Downloader is only needed once per device.
 
 ## Status (by milestone)
 - [x] M0 — toolchain + SDK + TV AVD
