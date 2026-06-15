@@ -75,6 +75,6 @@ class SettingsStore(context: Context) {
         private val KEY_ALLOWLIST = stringSetPreferencesKey("allowlist_hosts")
         private val KEY_SEARCH = stringPreferencesKey("search_template")
 
-        const val DEFAULT_SEARCH = "https://duckduckgo.com/?q=%s"
+        const val DEFAULT_SEARCH = "https://www.google.com/search?q=%s"
     }
 }

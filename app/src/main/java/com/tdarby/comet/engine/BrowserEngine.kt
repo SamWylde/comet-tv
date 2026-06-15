@@ -53,6 +53,9 @@ interface BrowserEngine {
     fun reload()
     fun stop()
 
+    /** Current vertical scroll position of the page (0 = top). Used to detect "at top of page". */
+    fun verticalScrollOffset(): Int = 0
+
     /** Switch between mobile/TV and desktop user-agent + viewport. */
     fun setDesktopMode(enabled: Boolean)
 
