@@ -1,15 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
     <item
-        android:id="@+id/menu_new_tab"
-        android:title="@string/menu_new_tab" />
-    <item
-        android:id="@+id/menu_close_tab"
-        android:title="@string/menu_close_tab" />
-    <item
-        android:id="@+id/menu_bookmark"
-        android:title="@string/menu_add_bookmark" />
-    <item
         android:id="@+id/menu_bookmarks"
         android:title="@string/menu_bookmarks" />
     <item
@@ -22,14 +13,14 @@
         android:id="@+id/menu_home"
         android:title="@string/menu_home" />
     <item
-        android:id="@+id/menu_voice"
-        android:title="@string/menu_voice" />
+        android:id="@+id/menu_bookmark"
+        android:title="@string/menu_add_bookmark" />
     <item
-        android:id="@+id/menu_zoom_in"
-        android:title="@string/menu_zoom_in" />
+        android:id="@+id/menu_new_tab"
+        android:title="@string/menu_new_tab" />
     <item
-        android:id="@+id/menu_zoom_out"
-        android:title="@string/menu_zoom_out" />
+        android:id="@+id/menu_close_tab"
+        android:title="@string/menu_close_tab" />
     <item
         android:id="@+id/menu_update"
         android:title="@string/menu_update" />

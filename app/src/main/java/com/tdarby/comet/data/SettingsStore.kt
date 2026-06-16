@@ -27,6 +27,7 @@ class SettingsStore(context: Context) {
     val searchTemplate: Flow<String> = ds.data.map { it[KEY_SEARCH] ?: DEFAULT_SEARCH }
     val cursorSpeed: Flow<Int> = ds.data.map { it[KEY_CURSOR_SPEED] ?: DEFAULT_CURSOR_SPEED }
     val directNav: Flow<Boolean> = ds.data.map { it[KEY_DIRECT_NAV] ?: false }
+    val firstRunHintShown: Flow<Boolean> = ds.data.map { it[KEY_HINT_SHOWN] ?: false }
 
     suspend fun desktopModeNow(): Boolean = desktopMode.first()
     suspend fun blockNetworkNow(): Boolean = blockNetwork.first()
@@ -37,6 +38,8 @@ class SettingsStore(context: Context) {
     suspend fun searchTemplateNow(): String = searchTemplate.first()
     suspend fun cursorSpeedNow(): Int = cursorSpeed.first()
     suspend fun directNavNow(): Boolean = directNav.first()
+    suspend fun firstRunHintShownNow(): Boolean = firstRunHintShown.first()
+    suspend fun setFirstRunHintShown(shown: Boolean) = ds.edit { it[KEY_HINT_SHOWN] = shown }
 
     suspend fun setSearchTemplate(template: String) = ds.edit { it[KEY_SEARCH] = template }
 
@@ -69,6 +72,7 @@ class SettingsStore(context: Context) {
         private val KEY_SEARCH = stringPreferencesKey("search_template")
         private val KEY_CURSOR_SPEED = intPreferencesKey("cursor_speed")
         private val KEY_DIRECT_NAV = booleanPreferencesKey("direct_nav")
+        private val KEY_HINT_SHOWN = booleanPreferencesKey("first_run_hint_shown")
 
         const val DEFAULT_SEARCH = "https://www.google.com/search?q=%s"
         /** Cursor speed slider value 1..5 (3 = normal). */
