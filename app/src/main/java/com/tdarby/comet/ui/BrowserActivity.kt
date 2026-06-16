@@ -120,12 +120,14 @@ class BrowserActivity : AppCompatActivity() {
     private var searchTemplate = SettingsStore.DEFAULT_SEARCH
     private var directNav = false
     private var cursorSpeedSetting = SettingsStore.DEFAULT_CURSOR_SPEED
+    private var hintShownAlready = false
 
     private var isFullscreen = false
     private var overlayFullscreen = false
     private var exitFullscreen: (() -> Unit)? = null
     private var centerLongHandled = false
     private var currentHost: String? = null
+    private var lastBlockToast = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -142,6 +144,7 @@ class BrowserActivity : AppCompatActivity() {
             searchTemplate = settings.searchTemplateNow()
             cursorSpeedSetting = settings.cursorSpeedNow()
             directNav = settings.directNavNow()
+            hintShownAlready = settings.firstRunHintShownNow()
             AdBlocker.networkEnabled = settings.blockNetworkNow()
             AdBlocker.cosmeticEnabled = settings.blockCosmeticNow()
             AdBlocker.popupEnabled = settings.blockPopupsNow()
@@ -172,6 +175,19 @@ class BrowserActivity : AppCompatActivity() {
 
         openInitialTabs()
         checkForUpdates(manual = false)
+        maybeShowFirstRunHint()
+    }
+
+    /** One-time overlay explaining the remote controls (cursor / OK / BACK / RIGHT / long-press). */
+    private fun maybeShowFirstRunHint() {
+        if (hintShownAlready) return
+        hintShownAlready = true
+        AlertDialog.Builder(this)
+            .setTitle(R.string.hint_title)
+            .setMessage(R.string.hint_body)
+            .setPositiveButton(R.string.hint_got_it, null)
+            .setOnDismissListener { lifecycleScope.launch { settings.setFirstRunHintShown(true) } }
+            .show()
     }
 
     /** Open a link passed via VIEW intent, else restore the saved session, else a home tab. */
@@ -203,10 +219,17 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     private fun setupCursorFocus() {
-        // Keep the caret at the end of the URL when the bar gains focus, so a single RIGHT moves on
-        // to the toolbar buttons (⋮ menu) instead of walking the caret through the whole URL.
+        // Autocomplete the address bar from history + bookmarks (big win for on-screen-keyboard typing).
+        val suggestions = UrlSuggestionAdapter(this)
+        binding.urlBar.setAdapter(suggestions)
+        binding.urlBar.setOnItemClickListener { _, _, _, _ -> navigateFromBar() }
         binding.urlBar.setOnFocusChangeListener { _, hasFocus ->
-            if (hasFocus) binding.urlBar.setSelection(binding.urlBar.text?.length ?: 0)
+            if (hasFocus) {
+                // Caret to end so a single RIGHT moves on to the toolbar (⋮ menu) instead of
+                // walking through the URL; refresh suggestions from the latest history/bookmarks.
+                binding.urlBar.setSelection(binding.urlBar.text?.length ?: 0)
+                suggestions.setCandidates(store.history.map { it.url } + store.bookmarks.map { it.url })
+            }
         }
         // Start focused on the address bar so the user can immediately type a URL. The cursor is
         // turned on explicitly when DOWN drops into the page (see dispatchKeyEvent), and off again
@@ -230,6 +253,9 @@ class BrowserActivity : AppCompatActivity() {
         btnReload.setOnClickListener { engine.reload() }
         btnGo.setOnClickListener { navigateFromBar() }
         btnCursor.setOnClickListener { setCursor(!cursor.active) }
+        btnVoice.setOnClickListener { launchVoiceSearch() }
+        btnZoomIn.setOnClickListener { engine.zoomIn() }
+        btnZoomOut.setOnClickListener { engine.zoomOut() }
         btnMenu.setOnClickListener { showMenu() }
         urlBar.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_GO) {
@@ -262,9 +288,6 @@ class BrowserActivity : AppCompatActivity() {
                 R.id.menu_history -> showHistory()
                 R.id.menu_downloads -> showDownloads()
                 R.id.menu_home -> engine.loadUrl(HOME_URL)
-                R.id.menu_voice -> launchVoiceSearch()
-                R.id.menu_zoom_in -> engine.zoomIn()
-                R.id.menu_zoom_out -> engine.zoomOut()
                 R.id.menu_update -> checkForUpdates(manual = true)
                 R.id.menu_settings -> showSettings()
             }
@@ -740,6 +763,15 @@ class BrowserActivity : AppCompatActivity() {
             tabManager.newTab(url)
         }
 
+        override fun onPopupBlocked(targetUrl: String?) {
+            // Brief, throttled feedback so the user can see the blocker is working.
+            val now = System.currentTimeMillis()
+            if (now - lastBlockToast > BLOCK_TOAST_THROTTLE_MS) {
+                lastBlockToast = now
+                toast(R.string.blocked_redirect)
+            }
+        }
+
         override fun onPageFinished(url: String) {
             store.recordVisit(engine.currentTitle() ?: url, url)
         }
@@ -921,5 +953,6 @@ class BrowserActivity : AppCompatActivity() {
     companion object {
         private const val HOME_URL = "https://www.google.com/"
         private const val AXIS_DEADZONE = 0.18f
+        private const val BLOCK_TOAST_THROTTLE_MS = 2500L
     }
 }

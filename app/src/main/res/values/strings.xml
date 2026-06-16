@@ -64,6 +64,10 @@
     <string name="ctx_open_image">Open image</string>
     <string name="ctx_download_image">Download image</string>
     <string name="ctx_copied">Link copied</string>
+    <string name="blocked_redirect">Blocked a redirect</string>
+    <string name="hint_title">Using Comet with your remote</string>
+    <string name="hint_body">• The D-pad moves an on-screen pointer; press OK to click.\n• Press BACK once to jump to the address bar; again to go back.\n• From the address bar, press RIGHT to reach the ⋮ menu.\n• Long-press OK on a link or image for more options.\n• Press DOWN from the toolbar to return to the page.</string>
+    <string name="hint_got_it">Got it</string>
     <string name="bookmarks_empty">No bookmarks yet</string>
     <string name="history_empty">No history yet</string>
     <string name="history_clear">Clear history</string>
