@@ -11,13 +11,14 @@ import android.widget.Filter
 class UrlSuggestionAdapter(context: Context) :
     ArrayAdapter<String>(context, android.R.layout.simple_dropdown_item_1line) {
 
-    private val candidates = mutableListOf<String>()
+    // Immutable snapshot swapped atomically — performFiltering runs on a worker thread.
+    @Volatile
+    private var candidates: List<String> = emptyList()
     private val shown = mutableListOf<String>()
 
-    /** Refresh the candidate pool (call when the bar gains focus). */
+    /** Refresh the candidate pool (call on focus and on each keystroke). */
     fun setCandidates(urls: List<String>) {
-        candidates.clear()
-        candidates.addAll(urls.filter { it.isNotBlank() }.distinct())
+        candidates = urls.filter { it.isNotBlank() }.distinct()
     }
 
     override fun getCount(): Int = shown.size
@@ -26,9 +27,10 @@ class UrlSuggestionAdapter(context: Context) :
     private val filter = object : Filter() {
         override fun performFiltering(constraint: CharSequence?): FilterResults {
             val q = constraint?.toString()?.trim()?.lowercase().orEmpty()
+            val pool = candidates // single volatile read -> consistent snapshot
             val matches =
                 if (q.isEmpty()) emptyList()
-                else candidates.filter { it.lowercase().contains(q) }.take(MAX_SUGGESTIONS)
+                else pool.filter { it.lowercase().contains(q) }.take(MAX_SUGGESTIONS)
             return FilterResults().apply { values = matches; count = matches.size }
         }
 

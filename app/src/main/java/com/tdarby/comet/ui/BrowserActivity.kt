@@ -39,6 +39,7 @@ import androidx.core.content.ContextCompat
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
+import androidx.core.widget.doOnTextChanged
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
@@ -223,12 +224,17 @@ class BrowserActivity : AppCompatActivity() {
         val suggestions = UrlSuggestionAdapter(this)
         binding.urlBar.setAdapter(suggestions)
         binding.urlBar.setOnItemClickListener { _, _, _, _ -> navigateFromBar() }
+        fun refreshSuggestions() =
+            suggestions.setCandidates(store.history.map { it.url } + store.bookmarks.map { it.url })
+        // Refresh on every keystroke (not just focus) — the bar is already focused at launch, so a
+        // focus-only refresh would miss history added during the session.
+        binding.urlBar.doOnTextChanged { _, _, _, _ -> refreshSuggestions() }
         binding.urlBar.setOnFocusChangeListener { _, hasFocus ->
             if (hasFocus) {
                 // Caret to end so a single RIGHT moves on to the toolbar (⋮ menu) instead of
-                // walking through the URL; refresh suggestions from the latest history/bookmarks.
+                // walking through the URL.
                 binding.urlBar.setSelection(binding.urlBar.text?.length ?: 0)
-                suggestions.setCandidates(store.history.map { it.url } + store.bookmarks.map { it.url })
+                refreshSuggestions()
             }
         }
         // Start focused on the address bar so the user can immediately type a URL. The cursor is
