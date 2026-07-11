@@ -20,6 +20,7 @@ class BrowserStore(context: Context) {
 
     private val bookmarksFile = File(context.filesDir, "bookmarks.json")
     private val historyFile = File(context.filesDir, "history.json")
+    private val defaultBookmarksMarker = File(context.filesDir, "default_bookmarks_v1")
     // limitedParallelism(1) serializes writes in submission order, so rapid changes can't persist
     // out of order (a later snapshot landing before an earlier one).
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -31,6 +32,22 @@ class BrowserStore(context: Context) {
     init {
         runCatching { bookmarks.addAll(readSites(bookmarksFile)) }
         runCatching { history.addAll(readHistory(historyFile)) }
+        seedDefaultBookmarks()
+    }
+
+    /**
+     * Add defaults once on both clean installs and upgrades. The marker prevents a bookmark the
+     * user deliberately removes from being recreated on every launch.
+     */
+    private fun seedDefaultBookmarks() {
+        if (defaultBookmarksMarker.exists()) return
+        runCatching {
+            if (bookmarks.none { it.url.trimEnd('/') == DEFAULT_BUFFSPORTS_URL.trimEnd('/') }) {
+                bookmarks.add(0, SiteItem(DEFAULT_BUFFSPORTS_TITLE, DEFAULT_BUFFSPORTS_URL))
+                writeSites(bookmarksFile, bookmarks)
+            }
+            defaultBookmarksMarker.writeText("1")
+        }
     }
 
     fun isBookmarked(url: String): Boolean = bookmarks.any { it.url == url }
@@ -102,5 +119,7 @@ class BrowserStore(context: Context) {
 
     companion object {
         private const val MAX_HISTORY = 500
+        private const val DEFAULT_BUFFSPORTS_TITLE = "BuffSports"
+        private const val DEFAULT_BUFFSPORTS_URL = "https://buffsports.io/"
     }
 }
