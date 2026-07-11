@@ -32,7 +32,7 @@ class TabManager(
     private val onChanged: () -> Unit
 ) {
     private inner class Tab {
-        lateinit var engine: BrowserEngine
+        var engine: BrowserEngine? = null
         var title: String = ""
         var url: String = ""
     }
@@ -41,18 +41,15 @@ class TabManager(
     private var activeIndex = -1
 
     val count: Int get() = tabs.size
-    val activeEngine: BrowserEngine get() = tabs[activeIndex].engine
+    val activeEngine: BrowserEngine get() = requireNotNull(tabs[activeIndex].engine)
     val hasTabs: Boolean get() = activeIndex in tabs.indices
     fun activePosition(): Int = activeIndex
     fun titles(): List<String> = tabs.map { it.title.ifBlank { it.url.ifBlank { "New tab" } } }
 
     fun newTab(url: String? = homeUrl) {
-        val tab = Tab()
-        tab.engine = create(wrap(tab))
-        init(tab.engine)
+        val tab = Tab().apply { this.url = url.orEmpty() }
         tabs.add(tab)
         setActive(tabs.size - 1)
-        url?.let { tab.engine.loadUrl(it) }
         onChanged()
     }
 
@@ -69,7 +66,7 @@ class TabManager(
         if (index !in tabs.indices) return
         val wasActive = index == activeIndex
         if (wasActive) detach(tabs[index])
-        tabs[index].engine.destroy()
+        tabs[index].engine?.destroy()
         tabs.removeAt(index)
         if (tabs.isEmpty()) {
             activeIndex = -1
@@ -92,38 +89,51 @@ class TabManager(
         val urls = tabs.map { it.url.ifBlank { homeUrl } }
         val previousActive = activeIndex.coerceIn(0, tabs.size - 1)
         if (activeIndex in tabs.indices) detach(tabs[activeIndex])
-        tabs.forEach { it.engine.destroy() }
-        tabs.clear()
+        tabs.forEach { it.engine?.destroy() }
+        tabs.forEachIndexed { index, tab ->
+            tab.engine = null
+            tab.url = urls[index]
+        }
         activeIndex = -1
-        urls.forEach { newTab(it) }
         setActive(previousActive)
         onChanged()
     }
 
-    fun forEachEngine(action: (BrowserEngine) -> Unit) = tabs.forEach { action(it.engine) }
+    fun forEachEngine(action: (BrowserEngine) -> Unit) = tabs.forEach { it.engine?.let(action) }
 
     fun destroyAll() {
         if (activeIndex in tabs.indices) detach(tabs[activeIndex])
-        tabs.forEach { it.engine.destroy() }
+        tabs.forEach { it.engine?.destroy() }
         tabs.clear()
         activeIndex = -1
     }
 
     fun onResume() {
-        if (activeIndex in tabs.indices) tabs[activeIndex].engine.onResume()
+        if (activeIndex in tabs.indices) tabs[activeIndex].engine?.onResume()
     }
 
     fun onPause() {
-        if (activeIndex in tabs.indices) tabs[activeIndex].engine.onPause()
+        if (activeIndex in tabs.indices) tabs[activeIndex].engine?.onPause()
     }
 
     private fun setActive(index: Int) {
         if (activeIndex in tabs.indices) detach(tabs[activeIndex])
         activeIndex = index
         val tab = tabs[index]
-        attach(tab.engine)
-        ui.onNavigationStateChanged(tab.engine.canGoBack(), tab.engine.canGoForward())
+        val (engine, created) = ensureEngine(tab)
+        attach(engine)
+        if (created) engine.loadUrl(tab.url.ifBlank { homeUrl })
+        ui.onNavigationStateChanged(engine.canGoBack(), engine.canGoForward())
         if (tab.url.isNotBlank()) ui.onUrlChanged(tab.url)
+    }
+
+    /** Restored background tabs stay as lightweight metadata until the user selects them. */
+    private fun ensureEngine(tab: Tab): Pair<BrowserEngine, Boolean> {
+        tab.engine?.let { return it to false }
+        return create(wrap(tab)).also {
+            init(it)
+            tab.engine = it
+        } to true
     }
 
     private fun attach(engine: BrowserEngine) {
@@ -135,8 +145,10 @@ class TabManager(
     }
 
     private fun detach(tab: Tab) {
-        tab.engine.onPause()
-        container.removeView(tab.engine.view)
+        tab.engine?.let {
+            it.onPause()
+            container.removeView(it.view)
+        }
     }
 
     private fun isActive(tab: Tab): Boolean = tabs.getOrNull(activeIndex) === tab
@@ -231,11 +243,11 @@ class TabManager(
         val wasActive = isActive(tab)
         val savedUrl = tab.url.ifBlank { homeUrl }
         if (wasActive) detach(tab)
-        tab.engine.destroy()
-        tab.engine = create(wrap(tab))
-        init(tab.engine)
-        if (wasActive) attach(tab.engine)
-        tab.engine.loadUrl(savedUrl)
+        tab.engine?.destroy()
+        tab.engine = null
+        val (engine, _) = ensureEngine(tab)
+        if (wasActive) attach(engine)
+        engine.loadUrl(savedUrl)
         onChanged()
     }
 
@@ -244,17 +256,14 @@ class TabManager(
 
     fun snapshot(): List<TabSnapshot> = tabs.map { TabSnapshot(it.url, it.title) }
 
-    /** Recreate tabs from a saved [snaps] list and select [active]; falls back to one home tab. */
+    /** Restore tab metadata and instantiate only the active WebView; other tabs remain lazy. */
     fun restore(snaps: List<TabSnapshot>, active: Int) {
         if (snaps.isEmpty()) { newTab(homeUrl); return }
         snaps.forEach { s ->
-            val tab = Tab()
-            tab.engine = create(wrap(tab))
-            init(tab.engine)
-            tab.title = s.title
-            tab.url = s.url
-            tabs.add(tab)
-            tab.engine.loadUrl(s.url.ifBlank { homeUrl })
+            tabs.add(Tab().apply {
+                title = s.title
+                url = s.url
+            })
         }
         activeIndex = -1
         setActive(active.coerceIn(0, tabs.size - 1))

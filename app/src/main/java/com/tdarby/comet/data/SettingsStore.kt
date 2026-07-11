@@ -29,6 +29,23 @@ class SettingsStore(context: Context) {
     val directNav: Flow<Boolean> = ds.data.map { it[KEY_DIRECT_NAV] ?: false }
     val firstRunHintShown: Flow<Boolean> = ds.data.map { it[KEY_HINT_SHOWN] ?: false }
 
+    /** Read the complete startup configuration from one DataStore snapshot. */
+    suspend fun snapshot(): Snapshot {
+        val prefs = ds.data.first()
+        return Snapshot(
+            desktopMode = prefs[KEY_DESKTOP] ?: false,
+            blockNetwork = prefs[KEY_BLOCK_NETWORK] ?: true,
+            blockCosmetic = prefs[KEY_BLOCK_COSMETIC] ?: true,
+            blockPopups = prefs[KEY_BLOCK_POPUPS] ?: true,
+            blockRedirects = prefs[KEY_BLOCK_REDIRECTS] ?: false,
+            allowlist = prefs[KEY_ALLOWLIST] ?: emptySet(),
+            searchTemplate = prefs[KEY_SEARCH] ?: DEFAULT_SEARCH,
+            cursorSpeed = prefs[KEY_CURSOR_SPEED] ?: DEFAULT_CURSOR_SPEED,
+            directNav = prefs[KEY_DIRECT_NAV] ?: false,
+            firstRunHintShown = prefs[KEY_HINT_SHOWN] ?: false
+        )
+    }
+
     suspend fun desktopModeNow(): Boolean = desktopMode.first()
     suspend fun blockNetworkNow(): Boolean = blockNetwork.first()
     suspend fun blockCosmeticNow(): Boolean = blockCosmetic.first()
@@ -78,4 +95,17 @@ class SettingsStore(context: Context) {
         /** Cursor speed slider value 1..5 (3 = normal). */
         const val DEFAULT_CURSOR_SPEED = 3
     }
+
+    data class Snapshot(
+        val desktopMode: Boolean,
+        val blockNetwork: Boolean,
+        val blockCosmetic: Boolean,
+        val blockPopups: Boolean,
+        val blockRedirects: Boolean,
+        val allowlist: Set<String>,
+        val searchTemplate: String,
+        val cursorSpeed: Int,
+        val directNav: Boolean,
+        val firstRunHintShown: Boolean
+    )
 }

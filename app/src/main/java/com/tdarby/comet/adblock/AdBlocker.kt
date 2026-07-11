@@ -150,7 +150,8 @@ object AdBlocker {
             val line = raw.trim()
             if (line.isEmpty() || line.startsWith("#") || line.startsWith("!")) return@forEachLine
             // Accept either bare hosts or hosts-file lines like "0.0.0.0 ads.example.com".
-            val token = line.split(Regex("\\s+")).lastOrNull()?.lowercase() ?: return@forEachLine
+            val lastWhitespace = line.indexOfLast { it == ' ' || it == '\t' }
+            val token = line.substring(lastWhitespace + 1).lowercase()
             if (token.isNotEmpty() && token != "localhost" && token.contains('.')) into.add(token)
         }
     }

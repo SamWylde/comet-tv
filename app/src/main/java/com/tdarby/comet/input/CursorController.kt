@@ -25,11 +25,11 @@ class CursorController(
     private val targetProvider: () -> View?
 ) {
     private val density = container.resources.displayMetrics.density
+    private val pointerSize = dp(36)
 
     private val pointer = ImageView(container.context).apply {
         setImageResource(R.drawable.ic_cursor)
-        val size = dp(28)
-        layoutParams = FrameLayout.LayoutParams(size, size)
+        layoutParams = FrameLayout.LayoutParams(pointerSize, pointerSize)
         visibility = View.GONE
         elevation = 1000f
         isClickable = false
@@ -78,13 +78,15 @@ class CursorController(
         if (x < 0f || y < 0f) center()
         val w = container.width.toFloat()
         val h = container.height.toFloat()
+        val maxX = (w - pointerSize).coerceAtLeast(0f)
+        val maxY = (h - pointerSize).coerceAtLeast(0f)
         val edge = dp(2).toFloat()
         val sx = dx * dp(ANALOG_STEP) * speedFactor
         val sy = dy * dp(ANALOG_STEP) * speedFactor
-        if (sy < 0 && y <= edge) scroll(0f, 1f, 4) else if (sy > 0 && y >= h - edge) scroll(0f, -1f, 4)
-        if (sx < 0 && x <= edge) scroll(1f, 0f, 4) else if (sx > 0 && x >= w - edge) scroll(-1f, 0f, 4)
-        x = (x + sx).coerceIn(0f, w)
-        y = (y + sy).coerceIn(0f, h)
+        if (sy < 0 && y <= edge) scroll(0f, 1f, 4) else if (sy > 0 && y >= maxY - edge) scroll(0f, -1f, 4)
+        if (sx < 0 && x <= edge) scroll(1f, 0f, 4) else if (sx > 0 && x >= maxX - edge) scroll(-1f, 0f, 4)
+        x = (x + sx).coerceIn(0f, maxX)
+        y = (y + sy).coerceIn(0f, maxY)
         updatePointer()
         bumpVisibility()
     }
@@ -101,18 +103,20 @@ class CursorController(
         val step = stepFor(repeatCount)
         val w = container.width.toFloat()
         val h = container.height.toFloat()
+        val maxX = (w - pointerSize).coerceAtLeast(0f)
+        val maxY = (h - pointerSize).coerceAtLeast(0f)
         val edge = dp(2).toFloat()
 
         // Pushing the pointer against an edge scrolls the page. Mouse-wheel events let Chromium run
         // its own smooth, animated scrolling (and route to whatever element is under the pointer),
         // instead of the jerky one-shot synthetic drag this used to do.
         if (dy < 0 && y <= edge) scroll(0f, 1f, repeatCount)
-        else if (dy > 0 && y >= h - edge) scroll(0f, -1f, repeatCount)
+        else if (dy > 0 && y >= maxY - edge) scroll(0f, -1f, repeatCount)
         if (dx < 0 && x <= edge) scroll(1f, 0f, repeatCount)
-        else if (dx > 0 && x >= w - edge) scroll(-1f, 0f, repeatCount)
+        else if (dx > 0 && x >= maxX - edge) scroll(-1f, 0f, repeatCount)
 
-        x = (x + dx * step).coerceIn(0f, w)
-        y = (y + dy * step).coerceIn(0f, h)
+        x = (x + dx * step).coerceIn(0f, maxX)
+        y = (y + dy * step).coerceIn(0f, maxY)
         updatePointer()
         bumpVisibility()
     }
