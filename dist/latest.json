@@ -1,10 +1,10 @@
 {
   "webview": {
-    "versionCode": 8,
-    "versionName": "1.0.7",
+    "versionCode": 9,
+    "versionName": "1.0.8",
     "apkUrl": "https://github.com/SamWylde/comet-tv/releases/latest/download/app-webview-universal-release.apk",
-    "sha256": "46445ffe1995a9403aa75e139e8bd342e9a6e3a5709e0188dee9ebcd9114a898",
-    "notes": "Adds BuffSports (https://buffsports.io/) as a one-time default bookmark for both fresh installs and upgrades. Existing matching bookmarks are not duplicated, and users can remove it permanently. Includes the faster startup and remote-first TV navigation improvements from 1.0.6.",
+    "sha256": "400f69ba22faac67b97994fa00497d036f8181769876ec3945c222c3bd1c6484",
+    "notes": "Fixes D-pad focus traps in dropdown controls. The Settings search-engine selector now lets Up/Down/Left/Right move to adjacent settings while Enter opens its choices, and the address-bar suggestion popup can always be escaped with Left or Right. Includes the BuffSports default bookmark from 1.0.7.",
     "required": false
   }
 }
