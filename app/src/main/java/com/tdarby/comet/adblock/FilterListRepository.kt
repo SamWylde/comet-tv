@@ -16,13 +16,23 @@ class FilterListRepository(private val context: Context) {
 
     private val cacheFile: File get() = File(context.filesDir, CACHE_NAME)
 
-    /** Bundled baseline + cached downloaded list (if present). Safe to call once at startup. */
-    fun loadInitial() {
+    /** The bundled baseline is intentionally tiny and safe to load during Application startup. */
+    fun loadBundled() {
         AdBlocker.loadFromAssets(context)
+    }
+
+    /** Merge the much larger downloaded cache. Call from a background dispatcher. */
+    fun loadCached() {
         val cache = cacheFile
         if (cache.exists()) {
             runCatching { cache.inputStream().use { AdBlocker.mergeFromStream(it) } }
         }
+    }
+
+    /** Bundled baseline + cached downloaded list (if present). */
+    fun loadInitial() {
+        loadBundled()
+        loadCached()
     }
 
     /** Download the remote list, cache it, and merge it in. Returns false on any failure. */

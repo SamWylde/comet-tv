@@ -8,6 +8,7 @@ import android.graphics.Typeface
 import android.net.Uri
 import android.net.http.SslError
 import android.os.Bundle
+import android.os.SystemClock
 import android.os.Environment
 import android.speech.RecognizerIntent
 import android.text.InputType
@@ -30,7 +31,6 @@ import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
@@ -60,8 +60,9 @@ import com.tdarby.comet.update.UpdateChecker
 import com.tdarby.comet.web.TabManager
 import com.tdarby.comet.util.SearchEngines
 import com.tdarby.comet.util.UrlUtils
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
 class BrowserActivity : AppCompatActivity() {
@@ -129,6 +130,19 @@ class BrowserActivity : AppCompatActivity() {
     private var centerLongHandled = false
     private var currentHost: String? = null
     private var lastBlockToast = 0L
+    private var exitBackPressCount = 0
+    private var exitSequenceDeadline = 0L
+    private var pendingIntentUrl: String? = null
+    private var addressBarActive = false
+    private var suppressBackCallbackUntil = 0L
+
+    private data class StartupData(
+        val settings: SettingsStore.Snapshot,
+        val browserStore: BrowserStore,
+        val tabsStore: TabsStore,
+        val savedTabs: List<TabManager.TabSnapshot>,
+        val activeTab: Int
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -136,21 +150,41 @@ class BrowserActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         settings = SettingsStore(this)
-        store = BrowserStore(this)
-        tabsStore = TabsStore(this)
-        // Blocklist is loaded once in CometApp.onCreate (FilterListRepository.loadInitial).
-        // Small one-shot reads at startup so engine + blocking match the user's saved choices.
-        runBlocking {
-            desktopMode = settings.desktopModeNow()
-            searchTemplate = settings.searchTemplateNow()
-            cursorSpeedSetting = settings.cursorSpeedNow()
-            directNav = settings.directNavNow()
-            hintShownAlready = settings.firstRunHintShownNow()
-            AdBlocker.networkEnabled = settings.blockNetworkNow()
-            AdBlocker.cosmeticEnabled = settings.blockCosmeticNow()
-            AdBlocker.popupEnabled = settings.blockPopupsNow()
-            AdBlocker.redirectBlockEnabled = settings.blockRedirectsNow()
-            AdBlocker.setAllowlist(settings.allowlistNow())
+        binding.startupOverlay.requestFocus()
+
+        // DataStore and JSON session/history reads must not hold up Android's first frame. The
+        // branded loading surface is drawn immediately while this small snapshot is read on IO.
+        lifecycleScope.launch {
+            val startup = withContext(Dispatchers.IO) {
+                val browserStore = BrowserStore(applicationContext)
+                val savedTabsStore = TabsStore(applicationContext)
+                val savedTabs = savedTabsStore.load()
+                StartupData(
+                    settings = settings.snapshot(),
+                    browserStore = browserStore,
+                    tabsStore = savedTabsStore,
+                    savedTabs = savedTabs,
+                    activeTab = savedTabsStore.activeIndex
+                )
+            }
+            initializeBrowser(startup)
+        }
+    }
+
+    private fun initializeBrowser(startup: StartupData) {
+        store = startup.browserStore
+        tabsStore = startup.tabsStore
+        with(startup.settings) {
+            this@BrowserActivity.desktopMode = desktopMode
+            this@BrowserActivity.searchTemplate = searchTemplate
+            this@BrowserActivity.cursorSpeedSetting = cursorSpeed
+            this@BrowserActivity.directNav = directNav
+            this@BrowserActivity.hintShownAlready = firstRunHintShown
+            AdBlocker.networkEnabled = blockNetwork
+            AdBlocker.cosmeticEnabled = blockCosmetic
+            AdBlocker.popupEnabled = blockPopups
+            AdBlocker.redirectBlockEnabled = blockRedirects
+            AdBlocker.setAllowlist(allowlist)
         }
 
         cursor = CursorController(binding.engineContainer) {
@@ -174,7 +208,10 @@ class BrowserActivity : AppCompatActivity() {
         registerBackHandling()
         setupCursorFocus()
 
-        openInitialTabs()
+        openInitialTabs(startup.savedTabs, startup.activeTab)
+        binding.startupOverlay.visibility = View.GONE
+        focusAddressBar()
+        binding.root.post { reportFullyDrawn() }
         checkForUpdates(manual = false)
         maybeShowFirstRunHint()
     }
@@ -192,11 +229,12 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     /** Open a link passed via VIEW intent, else restore the saved session, else a home tab. */
-    private fun openInitialTabs() {
-        val intentUrl = intentUrl(intent)
+    private fun openInitialTabs(savedTabs: List<TabManager.TabSnapshot>, activeTab: Int) {
+        val intentUrl = pendingIntentUrl ?: intentUrl(intent)
+        pendingIntentUrl = null
         when {
             intentUrl != null -> tabManager.newTab(intentUrl)
-            else -> tabManager.restore(tabsStore.load(), tabsStore.activeIndex) // empty -> home tab
+            else -> tabManager.restore(savedTabs, activeTab) // empty -> home tab
         }
     }
 
@@ -210,16 +248,19 @@ class BrowserActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        intentUrl(intent)?.let { tabManager.newTab(it) }
+        intentUrl(intent)?.let {
+            if (::tabManager.isInitialized) tabManager.newTab(it) else pendingIntentUrl = it
+        }
     }
 
     private fun persistTabs() {
-        if (::tabManager.isInitialized && tabManager.hasTabs) {
+        if (::tabManager.isInitialized && ::tabsStore.isInitialized && tabManager.hasTabs) {
             tabsStore.save(tabManager.snapshot(), tabManager.activePosition())
         }
     }
 
     private fun setupCursorFocus() {
+        binding.urlBar.onRemoteBack = ::leaveAddressBar
         // Autocomplete the address bar from history + bookmarks (big win for on-screen-keyboard typing).
         val suggestions = UrlSuggestionAdapter(this)
         binding.urlBar.setAdapter(suggestions)
@@ -231,21 +272,30 @@ class BrowserActivity : AppCompatActivity() {
         binding.urlBar.doOnTextChanged { _, _, _, _ -> refreshSuggestions() }
         binding.urlBar.setOnFocusChangeListener { _, hasFocus ->
             if (hasFocus) {
+                addressBarActive = true
                 // Caret to end so a single RIGHT moves on to the toolbar (⋮ menu) instead of
                 // walking through the URL.
                 binding.urlBar.setSelection(binding.urlBar.text?.length ?: 0)
                 refreshSuggestions()
+            } else if (addressBarActive) {
+                // Some TV builds consume BACK inside the text stack and only expose the resulting
+                // focus loss. Treat any unrequested loss as "leave address bar".
+                leaveAddressBar()
             }
         }
         // Start focused on the address bar so the user can immediately type a URL. The cursor is
         // turned on explicitly when DOWN drops into the page (see dispatchKeyEvent), and off again
         // by BACK / long-press-OK / UP-at-top — no reliance on container focus events.
-        binding.urlBar.post { binding.urlBar.requestFocus() }
     }
 
     private fun setCursor(active: Boolean) {
         cursor.setActive(active)
-        if (active) binding.engineContainer.requestFocus() else binding.urlBar.requestFocus()
+        if (active && tabManager.hasTabs) {
+            addressBarActive = false
+            engine.view.requestFocus()
+        } else {
+            focusAddressBar()
+        }
     }
 
     /** Map the 1..5 speed slider to a cursor movement multiplier (3 = normal). */
@@ -273,39 +323,45 @@ class BrowserActivity : AppCompatActivity() {
     private fun navigateFromBar() {
         val target = UrlUtils.toUrlOrSearch(binding.urlBar.text.toString(), searchTemplate)
         engine.loadUrl(target)
+        addressBarActive = false
         binding.urlBar.clearFocus()
-        binding.engineContainer.requestFocus()
+        if (directNav) {
+            cursor.setActive(false)
+            engine.view.requestFocus()
+        } else {
+            setCursor(true)
+        }
     }
 
     private fun showMenu() {
-        val popup = PopupMenu(this, binding.btnMenu)
-        popup.menuInflater.inflate(R.menu.browser_menu, popup.menu)
         val url = engine.currentUrl()
         val bookmarked = url != null && store.isBookmarked(url)
-        popup.menu.findItem(R.id.menu_bookmark).setTitle(
-            if (bookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark
+        val actions = listOf(
+            getString(R.string.settings_title) to ::showSettings,
+            getString(R.string.menu_home) to { engine.loadUrl(HOME_URL) },
+            getString(R.string.menu_bookmarks) to ::showBookmarks,
+            getString(R.string.menu_history) to ::showHistory,
+            getString(R.string.menu_downloads) to ::showDownloads,
+            getString(if (bookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark) to
+                ::toggleBookmark,
+            getString(R.string.menu_new_tab) to ::openNewTab,
+            getString(R.string.menu_close_tab) to { tabManager.closeActive() },
+            getString(R.string.menu_voice) to ::launchVoiceSearch,
+            getString(R.string.menu_zoom_in) to { engine.zoomIn() },
+            getString(R.string.menu_zoom_out) to { engine.zoomOut() },
+            getString(R.string.menu_update) to { checkForUpdates(manual = true) }
         )
-        popup.setOnMenuItemClickListener { item ->
-            when (item.itemId) {
-                R.id.menu_new_tab -> openNewTab()
-                R.id.menu_close_tab -> tabManager.closeActive()
-                R.id.menu_bookmark -> toggleBookmark()
-                R.id.menu_bookmarks -> showBookmarks()
-                R.id.menu_history -> showHistory()
-                R.id.menu_downloads -> showDownloads()
-                R.id.menu_home -> engine.loadUrl(HOME_URL)
-                R.id.menu_update -> checkForUpdates(manual = true)
-                R.id.menu_settings -> showSettings()
-            }
-            true
-        }
-        popup.show()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.action_menu)
+            .setItems(actions.map { it.first }.toTypedArray()) { _, which -> actions[which].second() }
+            .setNegativeButton(R.string.action_close, null)
+            .show()
     }
 
     private fun openNewTab() {
         tabManager.newTab(HOME_URL)
         binding.urlBar.setText("")
-        binding.urlBar.requestFocus()
+        focusAddressBar()
     }
 
     private fun onTabsChanged() {
@@ -317,25 +373,42 @@ class BrowserActivity : AppCompatActivity() {
     private fun refreshTabStrip() {
         val strip = binding.tabStrip
         val count = tabManager.count
+        val focusedIndex = (0 until strip.childCount).firstOrNull { strip.getChildAt(it).hasFocus() }
         binding.tabStripScroll.visibility = if (count > 1) View.VISIBLE else View.GONE
         strip.removeAllViews()
         if (count <= 1) return
         val active = tabManager.activePosition()
-        tabManager.titles().forEachIndexed { index, title ->
+        tabManager.titles().forEachIndexed { tabIndex, title ->
             val button = Button(this).apply {
                 text = title.take(24)
                 isAllCaps = false
-                if (index == active) setTypeface(typeface, Typeface.BOLD)
-                setOnClickListener { tabManager.select(index) }
-                setOnLongClickListener { tabManager.closeTab(index); true }
+                minWidth = resources.displayMetrics.density.times(120).toInt()
+                minHeight = resources.displayMetrics.density.times(52).toInt()
+                setTextColor(android.graphics.Color.WHITE)
+                setBackgroundResource(R.drawable.tv_tab_background)
+                isSelected = tabIndex == active
+                contentDescription = getString(
+                    R.string.tab_description,
+                    Integer.valueOf(tabIndex + 1),
+                    Integer.valueOf(count),
+                    title
+                )
+                if (isSelected) setTypeface(typeface, Typeface.BOLD)
+                setOnClickListener { tabManager.select(tabIndex) }
+                setOnLongClickListener { tabManager.closeTab(tabIndex); true }
             }
             strip.addView(button)
         }
         val addButton = Button(this).apply {
             text = "+"
+            minHeight = resources.displayMetrics.density.times(52).toInt()
+            setTextColor(android.graphics.Color.WHITE)
+            setBackgroundResource(R.drawable.tv_tab_background)
+            contentDescription = getString(R.string.menu_new_tab)
             setOnClickListener { openNewTab() }
         }
         strip.addView(addButton)
+        focusedIndex?.coerceAtMost(strip.childCount - 1)?.let { strip.getChildAt(it).requestFocus() }
     }
 
     private fun toggleBookmark() {
@@ -514,6 +587,14 @@ class BrowserActivity : AppCompatActivity() {
         dlg.switchBlockRedirects.isChecked = AdBlocker.redirectBlockEnabled
         dlg.switchDirectNav.isChecked = directNav
         dlg.seekCursorSpeed.progress = (cursorSpeedSetting - 1).coerceIn(0, 4)
+        dlg.switchDesktop.contentDescription = getString(R.string.settings_desktop)
+        dlg.spinnerSearch.contentDescription = getString(R.string.settings_search)
+        dlg.switchBlockNetwork.contentDescription = getString(R.string.settings_block_network)
+        dlg.switchBlockCosmetic.contentDescription = getString(R.string.settings_block_cosmetic)
+        dlg.switchBlockPopups.contentDescription = getString(R.string.settings_block_popups)
+        dlg.switchBlockRedirects.contentDescription = getString(R.string.settings_block_redirects)
+        dlg.switchDirectNav.contentDescription = getString(R.string.settings_direct_nav)
+        dlg.seekCursorSpeed.contentDescription = getString(R.string.settings_cursor_speed)
 
         val host = currentHost
         dlg.switchAllowSite.isEnabled = host != null
@@ -521,6 +602,7 @@ class BrowserActivity : AppCompatActivity() {
         dlg.allowSiteLabel.text =
             if (host != null) getString(R.string.settings_allow_site_host, host)
             else getString(R.string.settings_allow_site)
+        dlg.switchAllowSite.contentDescription = dlg.allowSiteLabel.text
 
         AlertDialog.Builder(this)
             .setTitle(R.string.settings_title)
@@ -566,6 +648,7 @@ class BrowserActivity : AppCompatActivity() {
             }
             .setNegativeButton(R.string.action_cancel, null)
             .show()
+        dlg.switchDesktop.requestFocus()
     }
 
     /**
@@ -574,17 +657,30 @@ class BrowserActivity : AppCompatActivity() {
      * Handled in dispatchKeyEvent so it works regardless of which inner view holds focus.
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        // In fullscreen video, let the player handle D-pad/OK natively (the cursor overlay is
-        // hidden behind the fullscreen view, so dispatching synthetic touches would be useless).
-        if (isFullscreen) return super.dispatchKeyEvent(event)
+        if (!::tabManager.isInitialized || !tabManager.hasTabs) return super.dispatchKeyEvent(event)
+        // EditText consumes BACK before OnBackPressedDispatcher on some Android TV builds. Catch it
+        // here so URL -> chrome is deterministic on five-button remotes.
+        if (event.keyCode == KeyEvent.KEYCODE_BACK && binding.urlBar.hasFocus()) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) leaveAddressBar()
+            return true
+        }
+        if (event.action == KeyEvent.ACTION_DOWN && event.keyCode in REMOTE_DIRECTION_KEYS) {
+            resetExitSequence()
+        }
 
         // Remote media keys drive the page's <video>/<audio> regardless of cursor/toolbar focus.
         mediaActionFor(event.keyCode)?.let { action ->
             if (event.action == KeyEvent.ACTION_DOWN && tabManager.hasTabs) engine.mediaAction(action)
             return true
         }
+        // In fullscreen video, let the now-focused player view handle D-pad/OK natively.
+        if (isFullscreen) return super.dispatchKeyEvent(event)
         if (event.keyCode == KeyEvent.KEYCODE_SEARCH) {
             if (event.action == KeyEvent.ACTION_UP) launchVoiceSearch()
+            return true
+        }
+        if (event.keyCode == KeyEvent.KEYCODE_MENU) {
+            if (event.action == KeyEvent.ACTION_UP) showMenu()
             return true
         }
 
@@ -594,19 +690,36 @@ class BrowserActivity : AppCompatActivity() {
         if (!cursor.active) {
             if (event.action == KeyEvent.ACTION_DOWN) {
                 // DOWN from anywhere in the top bar drops into the page and shows the cursor again.
-                if (!directNav && event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && binding.topBar.hasFocus()) {
-                    setCursor(true)
+                if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && binding.topBar.hasFocus()) {
+                    if (binding.urlBar.hasFocus() && binding.urlBar.isPopupShowing) {
+                        return super.dispatchKeyEvent(event)
+                    }
+                    if (binding.tabStripScroll.visibility == View.VISIBLE && binding.tabStrip.childCount > 0) {
+                        addressBarActive = false
+                        binding.tabStrip.getChildAt(
+                            tabManager.activePosition().coerceIn(0, binding.tabStrip.childCount - 1)
+                        ).requestFocus()
+                    } else if (directNav) {
+                        addressBarActive = false
+                        engine.view.requestFocus()
+                    } else {
+                        setCursor(true)
+                    }
+                    return true
+                }
+                if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && binding.tabStrip.hasFocus()) {
+                    if (directNav) engine.view.requestFocus() else setCursor(true)
                     return true
                 }
                 if (binding.urlBar.hasFocus()) {
-                    val et = binding.urlBar
-                    val len = et.text?.length ?: 0
-                    // At the end of the URL, RIGHT jumps to the toolbar buttons (Go / cursor / ⋮);
-                    // at the start, LEFT jumps to reload/forward/back — no caret-walking required.
-                    if (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && et.selectionEnd >= len) {
+                    // A five-button TV remote must always escape the text field in one press.
+                    // Text caret movement happens inside the on-screen keyboard after OK is pressed.
+                    if (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                        addressBarActive = false
                         binding.btnGo.requestFocus(); return true
                     }
-                    if (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && et.selectionStart <= 0) {
+                    if (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                        addressBarActive = false
                         binding.btnReload.requestFocus(); return true
                     }
                 }
@@ -731,24 +844,82 @@ class BrowserActivity : AppCompatActivity() {
     private fun registerBackHandling() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                if (SystemClock.uptimeMillis() < suppressBackCallbackUntil) {
+                    binding.btnMenu.postDelayed(
+                        { binding.btnMenu.requestFocus() },
+                        URL_BACK_FOCUS_DELAY_MS
+                    )
+                    return
+                }
                 when {
                     isFullscreen -> exitFullscreen?.invoke()
                     // In page-cursor mode, BACK first returns to the toolbar/address bar (reliable,
                     // single press — unlike long-press OK, which needs key auto-repeat some remotes
                     // don't emit). Press BACK again to actually go back in history.
                     cursor.active -> setCursor(false)
+                    directNav && (engine.view.hasFocus() || binding.engineContainer.hasFocus()) ->
+                        focusAddressBar()
+                    // BACK exits address entry into browser chrome; it must never terminate Comet.
+                    addressBarActive || binding.urlBar.hasFocus() -> leaveAddressBar()
                     engine.canGoBack() -> engine.goBack()
                     tabManager.count > 1 -> tabManager.closeActive()
                     else -> {
-                        isEnabled = false
-                        onBackPressedDispatcher.onBackPressed()
+                        val now = SystemClock.uptimeMillis()
+                        if (now > exitSequenceDeadline) exitBackPressCount = 0
+                        exitSequenceDeadline = now + EXIT_SEQUENCE_TIMEOUT_MS
+                        exitBackPressCount++
+                        if (exitBackPressCount >= EXIT_BACK_PRESS_COUNT) {
+                            resetExitSequence()
+                            isEnabled = false
+                            onBackPressedDispatcher.onBackPressed()
+                        } else if (exitBackPressCount == 2) {
+                            toast(R.string.press_back_twice_to_exit)
+                        } else if (exitBackPressCount == 3) {
+                            toast(R.string.press_back_once_to_exit)
+                        }
                     }
                 }
             }
         })
     }
 
+    private fun hideSoftKeyboard() {
+        val input = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        input.hideSoftInputFromWindow(binding.urlBar.windowToken, 0)
+    }
+
+    private fun leaveAddressBar() {
+        addressBarActive = false
+        suppressBackCallbackUntil = SystemClock.uptimeMillis() + BACK_CALLBACK_SUPPRESSION_MS
+        hideSoftKeyboard()
+        binding.urlBar.dismissDropDown()
+        binding.urlBar.clearFocus()
+        // The TV IME may restore EditText focus as it finishes handling BACK. Move focus after that
+        // transaction completes so the menu highlight reliably wins.
+        binding.btnMenu.postDelayed({ binding.btnMenu.requestFocus() }, URL_BACK_FOCUS_DELAY_MS)
+        resetExitSequence()
+    }
+
+    private fun focusAddressBar() {
+        addressBarActive = true
+        binding.urlBar.requestFocus()
+    }
+
+    private fun resetExitSequence() {
+        exitBackPressCount = 0
+        exitSequenceDeadline = 0L
+    }
+
     private val callbacks = object : EngineCallbacks {
+        override fun onNavigationStateChanged(canGoBack: Boolean, canGoForward: Boolean) {
+            binding.btnBack.isEnabled = canGoBack
+            binding.btnBack.isFocusable = canGoBack
+            binding.btnBack.alpha = if (canGoBack) 1f else 0.35f
+            binding.btnForward.isEnabled = canGoForward
+            binding.btnForward.isFocusable = canGoForward
+            binding.btnForward.alpha = if (canGoForward) 1f else 0.35f
+        }
+
         override fun onProgressChanged(progress: Int) {
             binding.progress.progress = progress
             binding.progress.visibility = if (progress in 1..99) View.VISIBLE else View.GONE
@@ -909,6 +1080,9 @@ class BrowserActivity : AppCompatActivity() {
                 binding.topBar.visibility = View.GONE
                 binding.progress.visibility = View.GONE
             }
+            fullscreenView.isFocusable = true
+            fullscreenView.isFocusableInTouchMode = true
+            fullscreenView.requestFocus()
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             setSystemBars(visible = false)
         }
@@ -925,6 +1099,7 @@ class BrowserActivity : AppCompatActivity() {
             }
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             setSystemBars(visible = true)
+            if (tabManager.hasTabs) engine.view.requestFocus()
         }
     }
 
@@ -942,17 +1117,17 @@ class BrowserActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        tabManager.onResume()
+        if (::tabManager.isInitialized) tabManager.onResume()
     }
 
     override fun onPause() {
         persistTabs()
-        tabManager.onPause()
+        if (::tabManager.isInitialized) tabManager.onPause()
         super.onPause()
     }
 
     override fun onDestroy() {
-        tabManager.destroyAll()
+        if (::tabManager.isInitialized) tabManager.destroyAll()
         super.onDestroy()
     }
 
@@ -960,5 +1135,17 @@ class BrowserActivity : AppCompatActivity() {
         private const val HOME_URL = "https://www.google.com/"
         private const val AXIS_DEADZONE = 0.18f
         private const val BLOCK_TOAST_THROTTLE_MS = 2500L
+        private const val EXIT_BACK_PRESS_COUNT = 4
+        private const val EXIT_SEQUENCE_TIMEOUT_MS = 6000L
+        private const val URL_BACK_FOCUS_DELAY_MS = 300L
+        private const val BACK_CALLBACK_SUPPRESSION_MS = 600L
+        private val REMOTE_DIRECTION_KEYS = setOf(
+            KeyEvent.KEYCODE_DPAD_UP,
+            KeyEvent.KEYCODE_DPAD_DOWN,
+            KeyEvent.KEYCODE_DPAD_LEFT,
+            KeyEvent.KEYCODE_DPAD_RIGHT,
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_ENTER
+        )
     }
 }

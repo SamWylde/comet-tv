@@ -168,7 +168,9 @@ class WebViewEngine(
         webView.settings.userAgentString = if (enabled) DESKTOP_UA else null
         webView.settings.useWideViewPort = enabled
         webView.settings.loadWithOverviewMode = enabled
-        webView.reload()
+        // Engine creation configures this before its first URL. Reloading about:blank here forces
+        // an unnecessary Chromium navigation for every new/restored tab.
+        if (!webView.url.isNullOrBlank() && webView.url != "about:blank") webView.reload()
     }
 
     override fun setBlockingEnabled(enabled: Boolean) {

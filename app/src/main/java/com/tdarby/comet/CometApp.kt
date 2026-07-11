@@ -8,14 +8,23 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.tdarby.comet.adblock.FilterListRepository
 import com.tdarby.comet.adblock.FilterUpdateWorker
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 class CometApp : Application() {
 
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     override fun onCreate() {
         super.onCreate()
-        // Load bundled + cached blocklist synchronously so blocking is active from the first page.
-        FilterListRepository(this).loadInitial()
+        val filters = FilterListRepository(this)
+        // Keep the tiny bundled baseline available for the first request, but never make the launch
+        // wait while a ~3 MB downloaded list is parsed on slower TV hardware.
+        filters.loadBundled()
+        appScope.launch { filters.loadCached() }
         scheduleFilterUpdates()
     }
 

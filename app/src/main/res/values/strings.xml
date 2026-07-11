@@ -66,7 +66,7 @@
     <string name="ctx_copied">Link copied</string>
     <string name="blocked_redirect">Blocked a redirect</string>
     <string name="hint_title">Using Comet with your remote</string>
-    <string name="hint_body">• The D-pad moves an on-screen pointer; press OK to click.\n• Press BACK once to jump to the address bar; again to go back.\n• From the address bar, press RIGHT to reach the ⋮ menu.\n• Long-press OK on a link or image for more options.\n• Press DOWN from the toolbar to return to the page.</string>
+    <string name="hint_body">• Press DOWN from the address bar or toolbar to enter the page.\n• The D-pad then moves the pointer; press OK to click.\n• Press BACK once to return to the address bar, then again to go back.\n• Press the remote MENU key, or move right through the toolbar, for browser options.\n• Long-press OK on a link or image for more options.</string>
     <string name="hint_got_it">Got it</string>
     <string name="bookmarks_empty">No bookmarks yet</string>
     <string name="history_empty">No history yet</string>
@@ -82,4 +82,8 @@
     <string name="update_check_failed">Couldn\'t check for updates</string>
     <string name="update_downloading">Downloading update…</string>
     <string name="update_failed">Update download failed</string>
+    <string name="startup_loading">Starting Comet…</string>
+    <string name="tab_description">Tab %1$d of %2$d: %3$s</string>
+    <string name="press_back_twice_to_exit">Press BACK 2 more times to exit Comet</string>
+    <string name="press_back_once_to_exit">Press BACK once more to exit Comet</string>
 </resources>
