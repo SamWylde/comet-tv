@@ -17,6 +17,16 @@ class TvUrlBar @JvmOverloads constructor(
 ) : AppCompatAutoCompleteTextView(context, attrs, defStyleAttr) {
 
     var onRemoteBack: (() -> Unit)? = null
+    var onRemoteHorizontal: ((keyCode: Int) -> Unit)? = null
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (isPopupShowing && keyCode in HORIZONTAL_KEYS) {
+            dismissDropDown()
+            onRemoteHorizontal?.invoke(keyCode)
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
 
     override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
@@ -24,5 +34,9 @@ class TvUrlBar @JvmOverloads constructor(
             return true
         }
         return super.onKeyPreIme(keyCode, event)
+    }
+
+    private companion object {
+        val HORIZONTAL_KEYS = setOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT)
     }
 }
