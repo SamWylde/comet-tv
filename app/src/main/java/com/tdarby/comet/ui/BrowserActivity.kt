@@ -261,6 +261,11 @@ class BrowserActivity : AppCompatActivity() {
 
     private fun setupCursorFocus() {
         binding.urlBar.onRemoteBack = ::leaveAddressBar
+        binding.urlBar.onRemoteHorizontal = { keyCode ->
+            addressBarActive = false
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) binding.btnReload.requestFocus()
+            else binding.btnGo.requestFocus()
+        }
         // Autocomplete the address bar from history + bookmarks (big win for on-screen-keyboard typing).
         val suggestions = UrlSuggestionAdapter(this)
         binding.urlBar.setAdapter(suggestions)
