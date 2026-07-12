@@ -2,9 +2,13 @@ package com.tdarby.comet.web
 
 import android.graphics.Bitmap
 import android.net.http.SslError
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.content.Context
 import android.util.Log
 import android.webkit.HttpAuthHandler
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebResourceError
 import android.webkit.SslErrorHandler
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -13,6 +17,7 @@ import android.webkit.WebViewClient
 import com.tdarby.comet.adblock.AdBlocker
 import com.tdarby.comet.adblock.PopupGuard
 import com.tdarby.comet.engine.EngineCallbacks
+import com.tdarby.comet.engine.PageFailureClassifier
 
 /**
  * Reports navigation state and applies the WebView blocking layers:
@@ -96,6 +101,39 @@ class BrowserWebViewClient(
         callbacks.onSslError(handler, error)
     }
 
+    override fun onReceivedError(
+        view: WebView,
+        request: WebResourceRequest,
+        error: WebResourceError
+    ) {
+        if (request.isForMainFrame) {
+            callbacks.onPageFailure(
+                PageFailureClassifier.fromWebError(
+                    error.errorCode,
+                    request.url.toString(),
+                    error.description?.toString().orEmpty(),
+                    isOffline(view.context)
+                )
+            )
+        }
+    }
+
+    override fun onReceivedHttpError(
+        view: WebView,
+        request: WebResourceRequest,
+        errorResponse: WebResourceResponse
+    ) {
+        if (request.isForMainFrame && errorResponse.statusCode >= 400) {
+            callbacks.onPageFailure(
+                PageFailureClassifier.fromHttp(
+                    errorResponse.statusCode,
+                    request.url.toString(),
+                    errorResponse.reasonPhrase.orEmpty()
+                )
+            )
+        }
+    }
+
     override fun onReceivedHttpAuthRequest(
         view: WebView,
         handler: HttpAuthHandler,
@@ -115,6 +153,14 @@ class BrowserWebViewClient(
 
     private fun notifyNav(view: WebView) {
         callbacks.onNavigationStateChanged(view.canGoBack(), view.canGoForward())
+    }
+
+    private fun isOffline(context: Context): Boolean {
+        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+        val network = manager.activeNetwork ?: return true
+        val capabilities = manager.getNetworkCapabilities(network) ?: return true
+        return !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     private companion object {

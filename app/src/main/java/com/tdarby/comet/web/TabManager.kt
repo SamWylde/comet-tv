@@ -2,6 +2,7 @@ package com.tdarby.comet.web
 
 import android.net.Uri
 import android.net.http.SslError
+import android.graphics.Bitmap
 import android.view.ViewGroup
 import android.webkit.GeolocationPermissions
 import android.webkit.HttpAuthHandler
@@ -12,6 +13,8 @@ import android.webkit.WebChromeClient
 import android.widget.FrameLayout
 import com.tdarby.comet.engine.BrowserEngine
 import com.tdarby.comet.engine.EngineCallbacks
+import com.tdarby.comet.engine.PageFailure
+import com.tdarby.comet.data.TabSessionPolicy
 
 /**
  * Owns the set of open tabs. Only the active tab's engine view is attached to [container] (others
@@ -44,7 +47,26 @@ class TabManager(
     val activeEngine: BrowserEngine get() = requireNotNull(tabs[activeIndex].engine)
     val hasTabs: Boolean get() = activeIndex in tabs.indices
     fun activePosition(): Int = activeIndex
+    fun activeUrl(): String = tabs.getOrNull(activeIndex)?.url.orEmpty()
     fun titles(): List<String> = tabs.map { it.title.ifBlank { it.url.ifBlank { "New tab" } } }
+
+    data class TabPreview(
+        val index: Int,
+        val title: String,
+        val url: String,
+        val active: Boolean,
+        val thumbnail: Bitmap?
+    )
+
+    fun previews(width: Int, height: Int): List<TabPreview> = tabs.mapIndexed { index, tab ->
+        TabPreview(
+            index = index,
+            title = tab.title.ifBlank { tab.url.ifBlank { "New tab" } },
+            url = tab.url,
+            active = index == activeIndex,
+            thumbnail = tab.engine?.captureThumbnail(width, height)
+        )
+    }
 
     fun newTab(url: String? = homeUrl) {
         val tab = Tab().apply { this.url = url.orEmpty() }
@@ -100,6 +122,16 @@ class TabManager(
     }
 
     fun forEachEngine(action: (BrowserEngine) -> Unit) = tabs.forEach { it.engine?.let(action) }
+
+    /** Release background WebViews under memory pressure while retaining lightweight tab metadata. */
+    fun releaseInactiveEngines() {
+        tabs.forEachIndexed { index, tab ->
+            if (index != activeIndex) {
+                tab.engine?.destroy()
+                tab.engine = null
+            }
+        }
+    }
 
     fun destroyAll() {
         if (activeIndex in tabs.indices) detach(tabs[activeIndex])
@@ -185,6 +217,10 @@ class TabManager(
             if (isActive(tab)) ui.onNavigationStateChanged(canGoBack, canGoForward)
         }
 
+        override fun onPageFailure(failure: PageFailure) {
+            if (isActive(tab)) ui.onPageFailure(failure)
+        }
+
         override fun onEnterFullscreen(fullscreenView: android.view.View, onExit: () -> Unit) {
             if (isActive(tab)) ui.onEnterFullscreen(fullscreenView, onExit)
         }
@@ -247,7 +283,7 @@ class TabManager(
         tab.engine = null
         val (engine, _) = ensureEngine(tab)
         if (wasActive) attach(engine)
-        engine.loadUrl(savedUrl)
+        if (wasActive) ui.onRendererRecovered(savedUrl) else engine.loadUrl(savedUrl)
         onChanged()
     }
 
@@ -259,14 +295,15 @@ class TabManager(
     /** Restore tab metadata and instantiate only the active WebView; other tabs remain lazy. */
     fun restore(snaps: List<TabSnapshot>, active: Int) {
         if (snaps.isEmpty()) { newTab(homeUrl); return }
-        snaps.forEach { s ->
+        val session = TabSessionPolicy.bound(snaps, active)
+        session.tabs.forEach { s ->
             tabs.add(Tab().apply {
                 title = s.title
                 url = s.url
             })
         }
         activeIndex = -1
-        setActive(active.coerceIn(0, tabs.size - 1))
+        setActive(session.activeIndex)
         onChanged()
     }
 }

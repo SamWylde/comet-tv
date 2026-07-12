@@ -1,9 +1,9 @@
 package com.tdarby.comet.adblock
 
 import android.content.Context
-import androidx.core.net.toUri
 import java.io.ByteArrayInputStream
 import java.io.InputStream
+import java.net.URI
 import java.util.Collections
 
 /**
@@ -143,7 +143,7 @@ object AdBlocker {
     fun cosmeticJs(): String = cosmeticScript
 
     fun hostOf(url: String?): String? =
-        url?.let { runCatching { it.toUri().host?.lowercase() }.getOrNull() }
+        url?.let { runCatching { URI(it).host?.lowercase() }.getOrNull() }
 
     private fun parseInto(stream: InputStream, into: MutableSet<String>) {
         stream.bufferedReader().forEachLine { raw ->

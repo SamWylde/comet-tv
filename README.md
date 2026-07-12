@@ -129,5 +129,6 @@ Signing reads `keystore.properties` (gitignored). Outputs:
   zoom, media keys, voice search, SSL/HTTP-auth prompts, external-app links, long-press context menu,
   gamepad cursor, configurable cursor speed / direct-nav, blob downloads
 
-> Multi-tab browsing is implemented (overflow menu + tab strip) and **tabs are restored across app
-> restarts**. There is no graphical home-tile grid. Everything above is implemented and builds.
+> Multi-tab browsing includes a visual thumbnail switcher with explicit close controls, and tabs
+> are restored across restarts. The native TV home screen provides large bookmark/recent-site tiles,
+> search, and voice entry. Everything above is implemented and builds.

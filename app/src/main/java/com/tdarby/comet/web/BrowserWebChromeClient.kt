@@ -38,20 +38,27 @@ class BrowserWebChromeClient(
     ): Boolean {
         val transport = resultMsg.obj as? WebView.WebViewTransport ?: return false
         val capture = WebView(view.context)
+        var handled = false
+        fun route(url: String?) {
+            if (handled) return
+            handled = true
+            if (!AdBlocker.popupEnabled && !url.isNullOrBlank()) callbacks.onOpenInNewTab(url)
+            else callbacks.onPopupBlocked(url)
+            capture.post { capture.destroy() }
+        }
         capture.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
-                val url = request.url.toString()
-                if (isUserGesture || !AdBlocker.popupEnabled) {
-                    callbacks.onOpenInNewTab(url)
-                } else {
-                    callbacks.onPopupBlocked(url)
-                }
-                v.destroy()
+                route(request.url.toString())
                 return true
+            }
+
+            override fun onPageStarted(v: WebView, url: String, favicon: android.graphics.Bitmap?) {
+                route(url)
             }
         }
         transport.webView = capture
         resultMsg.sendToTarget()
+        capture.postDelayed({ route(null) }, POPUP_CAPTURE_TIMEOUT_MS)
         return true
     }
 
@@ -96,5 +103,9 @@ class BrowserWebChromeClient(
         customView = null
         customViewCallback = null
         callbacks.onExitFullscreen()
+    }
+
+    private companion object {
+        const val POPUP_CAPTURE_TIMEOUT_MS = 2_000L
     }
 }
