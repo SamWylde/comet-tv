@@ -1,10 +1,10 @@
 {
   "webview": {
-    "versionCode": 10,
-    "versionName": "1.0.9",
+    "versionCode": 11,
+    "versionName": "1.0.10",
     "apkUrl": "https://github.com/SamWylde/comet-tv/releases/latest/download/app-webview-universal-release.apk",
-    "sha256": "0e9bef59eda54f720b9ae91e831e09dd7cc203dba518aa35e59c0942d901c3f3",
-    "notes": "Adds a native TV home screen, bookmark and recent-site tiles, visual thumbnail tab switching, overscan-safe accessibility improvements, explicit TV keyboard opening from the URL and home search fields, safer four-Back exit behavior, stronger popup and redirect blocking, low-memory and renderer-crash recovery, and clearer offline, network, HTTP, SSL, and crashed-page screens.",
+    "sha256": "4c0d866c1dbff4ddfde528efd0c1313e5a455ac60f51a07af44fd5e53708f267",
+    "notes": "Makes the on-screen cursor smooth and precise. Quick D-pad taps now move only 3dp so small links and controls are reachable, while held directions use frame-timed acceleration for fast movement across the TV screen. Cursor speed settings still scale held motion without sacrificing precision.",
     "required": false
   }
 }
