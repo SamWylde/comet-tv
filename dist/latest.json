@@ -1,10 +1,10 @@
 {
   "webview": {
-    "versionCode": 9,
-    "versionName": "1.0.8",
+    "versionCode": 10,
+    "versionName": "1.0.9",
     "apkUrl": "https://github.com/SamWylde/comet-tv/releases/latest/download/app-webview-universal-release.apk",
-    "sha256": "400f69ba22faac67b97994fa00497d036f8181769876ec3945c222c3bd1c6484",
-    "notes": "Fixes D-pad focus traps in dropdown controls. The Settings search-engine selector now lets Up/Down/Left/Right move to adjacent settings while Enter opens its choices, and the address-bar suggestion popup can always be escaped with Left or Right. Includes the BuffSports default bookmark from 1.0.7.",
+    "sha256": "0e9bef59eda54f720b9ae91e831e09dd7cc203dba518aa35e59c0942d901c3f3",
+    "notes": "Adds a native TV home screen, bookmark and recent-site tiles, visual thumbnail tab switching, overscan-safe accessibility improvements, explicit TV keyboard opening from the URL and home search fields, safer four-Back exit behavior, stronger popup and redirect blocking, low-memory and renderer-crash recovery, and clearer offline, network, HTTP, SSL, and crashed-page screens.",
     "required": false
   }
 }
