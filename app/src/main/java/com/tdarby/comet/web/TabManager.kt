@@ -222,7 +222,7 @@ class TabManager(
         }
 
         override fun onEnterFullscreen(fullscreenView: android.view.View, onExit: () -> Unit) {
-            if (isActive(tab)) ui.onEnterFullscreen(fullscreenView, onExit)
+            if (isActive(tab)) ui.onEnterFullscreen(fullscreenView, onExit) else onExit()
         }
 
         override fun onExitFullscreen() {
@@ -254,9 +254,17 @@ class TabManager(
         override fun onPermissionRequest(request: PermissionRequest) =
             if (isActive(tab)) ui.onPermissionRequest(request) else request.deny()
 
+        override fun onPermissionRequestCanceled(request: PermissionRequest) {
+            if (isActive(tab)) ui.onPermissionRequestCanceled(request)
+        }
+
         override fun onGeolocationPrompt(origin: String, callback: GeolocationPermissions.Callback) =
             if (isActive(tab)) ui.onGeolocationPrompt(origin, callback)
             else callback.invoke(origin, false, false)
+
+        override fun onGeolocationPromptCanceled() {
+            if (isActive(tab)) ui.onGeolocationPromptCanceled()
+        }
 
         override fun onSslError(handler: SslErrorHandler, error: SslError) =
             if (isActive(tab)) ui.onSslError(handler, error) else handler.cancel()

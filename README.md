@@ -129,6 +129,10 @@ Signing reads `keystore.properties` (gitignored). Outputs:
   zoom, media keys, voice search, SSL/HTTP-auth prompts, external-app links, long-press context menu,
   gamepad cursor, configurable cursor speed / direct-nav, blob downloads
 
+- [x] M9 — per-site identity and viewport profiles, UA Client Hint consistency, diagnostics/support
+  reports, isolated private tabs, complete browsing-data deletion, one-time size-limited blob transfers,
+  origin-scoped camera/microphone/location permissions, and hardened fullscreen/popup handling
+
 > Multi-tab browsing includes a visual thumbnail switcher with explicit close controls, and tabs
 > are restored across restarts. The native TV home screen provides large bookmark/recent-site tiles,
 > search, and voice entry. Everything above is implemented and builds.

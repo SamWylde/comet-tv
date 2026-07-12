@@ -52,10 +52,12 @@ interface EngineCallbacks {
 
     /** Page requested a runtime web permission (camera/microphone/...). Default: deny. */
     fun onPermissionRequest(request: PermissionRequest) = request.deny()
+    fun onPermissionRequestCanceled(request: PermissionRequest) {}
 
     /** Page requested the device location. Default: deny. */
     fun onGeolocationPrompt(origin: String, callback: GeolocationPermissions.Callback) =
         callback.invoke(origin, false, false)
+    fun onGeolocationPromptCanceled() {}
 
     /** Certificate error on the page. Default: cancel (safe). */
     fun onSslError(handler: SslErrorHandler, error: SslError) = handler.cancel()
@@ -117,6 +119,13 @@ interface BrowserEngine {
 
     /** Switch between mobile/TV and desktop user-agent + viewport. */
     fun setDesktopMode(enabled: Boolean)
+
+    /** Apply identity and responsive-layout viewport independently for a site. */
+    fun setBrowsingMode(
+        desktopIdentity: Boolean,
+        useWideViewPort: Boolean,
+        loadWithOverviewMode: Boolean
+    ) = setDesktopMode(desktopIdentity)
 
     // --- Ad blocking ---
     fun setBlockingEnabled(enabled: Boolean)

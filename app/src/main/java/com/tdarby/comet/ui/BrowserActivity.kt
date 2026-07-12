@@ -2,6 +2,8 @@ package com.tdarby.comet.ui
 
 import android.Manifest
 import android.app.DownloadManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
@@ -9,6 +11,7 @@ import android.graphics.Color
 import android.net.Uri
 import android.net.http.SslError
 import android.os.Bundle
+import android.os.Build
 import android.os.SystemClock
 import android.os.Environment
 import android.speech.RecognizerIntent
@@ -28,6 +31,9 @@ import android.webkit.SslErrorHandler
 import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
+import android.webkit.WebStorage
+import android.webkit.WebView
+import android.webkit.WebViewDatabase
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
@@ -47,9 +53,18 @@ import androidx.core.widget.doOnTextChanged
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
+import com.tdarby.comet.BuildConfig
 import com.tdarby.comet.R
 import com.tdarby.comet.adblock.AdBlocker
 import com.tdarby.comet.data.SettingsStore
+import com.tdarby.comet.data.BrowsingIdentity
+import com.tdarby.comet.data.BrowsingViewport
+import com.tdarby.comet.data.ResolvedSiteBrowsingSettings
+import com.tdarby.comet.data.SiteBrowsingPolicy
+import com.tdarby.comet.data.SiteBrowsingSettings
 import com.tdarby.comet.databinding.ActivityBrowserBinding
 import com.tdarby.comet.databinding.DialogSettingsBinding
 import com.tdarby.comet.engine.BrowserEngine
@@ -63,6 +78,15 @@ import com.tdarby.comet.engine.PageFailureKind
 import com.tdarby.comet.input.CursorController
 import com.tdarby.comet.input.RemoteExitPolicy
 import com.tdarby.comet.input.RemoteKey
+import com.tdarby.comet.permission.PermissionDecision
+import com.tdarby.comet.permission.PermissionKey
+import com.tdarby.comet.permission.PermissionPolicy
+import com.tdarby.comet.permission.SitePermissionResource
+import com.tdarby.comet.support.SupportReportBuilder
+import com.tdarby.comet.support.SupportReportInput
+import com.tdarby.comet.support.SupportViewport
+import com.tdarby.comet.support.UserAgentBrand
+import com.tdarby.comet.support.UserAgentClientHints
 import com.tdarby.comet.update.ReleaseManifest
 import com.tdarby.comet.update.UpdateChecker
 import com.tdarby.comet.web.TabManager
@@ -73,7 +97,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
-class BrowserActivity : AppCompatActivity() {
+open class BrowserActivity : AppCompatActivity() {
+
+    protected open val isIncognito: Boolean = false
 
     private lateinit var binding: ActivityBrowserBinding
     private lateinit var settings: SettingsStore
@@ -105,6 +131,11 @@ class BrowserActivity : AppCompatActivity() {
 
     /** Completed when the OS runtime-permission prompt returns (for web permission requests). */
     private var onOsPermissionResult: ((granted: Boolean) -> Unit)? = null
+    private val permissionPolicy = PermissionPolicy()
+    private var permissionDialog: AlertDialog? = null
+    private var activePermissionRequest: PermissionRequest? = null
+    private var activeGeolocationOrigin: String? = null
+    private var activeGeolocationCallback: GeolocationPermissions.Callback? = null
 
     private val osPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
@@ -123,18 +154,137 @@ class BrowserActivity : AppCompatActivity() {
         osPermissionLauncher.launch(missing.toTypedArray())
     }
 
+    private fun cancelPermissionPrompt(deny: Boolean) {
+        permissionDialog?.setOnCancelListener(null)
+        permissionDialog?.dismiss()
+        permissionDialog = null
+        activePermissionRequest?.let { if (deny) it.deny() }
+        activePermissionRequest = null
+        val geoOrigin = activeGeolocationOrigin
+        val geoCallback = activeGeolocationCallback
+        if (deny && geoOrigin != null && geoCallback != null) geoCallback.invoke(geoOrigin, false, false)
+        activeGeolocationOrigin = null
+        activeGeolocationCallback = null
+        onOsPermissionResult = null
+    }
+
+    private fun resourceLabel(resource: SitePermissionResource): String = when (resource) {
+        SitePermissionResource.CAMERA -> getString(R.string.permission_camera)
+        SitePermissionResource.MICROPHONE -> getString(R.string.permission_microphone)
+        SitePermissionResource.PROTECTED_MEDIA -> getString(R.string.permission_protected_media)
+        SitePermissionResource.LOCATION -> getString(R.string.permission_location_name)
+    }
+
+    private fun osPermissionsFor(resources: Collection<String>): List<String> = resources.mapNotNull {
+        when (it) {
+            PermissionRequest.RESOURCE_VIDEO_CAPTURE -> Manifest.permission.CAMERA
+            PermissionRequest.RESOURCE_AUDIO_CAPTURE -> Manifest.permission.RECORD_AUDIO
+            else -> null
+        }
+    }.distinct()
+
+    private fun finishPermissionRequest(
+        request: PermissionRequest,
+        origin: String,
+        decisions: Map<PermissionKey, PermissionDecision>
+    ) {
+        val resolution = permissionPolicy.resolve(origin, request.resources.toList(), decisions)
+        val granted = resolution.grantedWebViewResources.toTypedArray()
+        if (granted.isEmpty()) {
+            if (activePermissionRequest === request) activePermissionRequest = null
+            request.deny()
+            return
+        }
+        ensureOsPermissions(osPermissionsFor(granted.asList())) { osGranted ->
+            if (activePermissionRequest !== request) return@ensureOsPermissions
+            activePermissionRequest = null
+            if (osGranted) request.grant(granted) else request.deny()
+        }
+    }
+
+    private fun showPermissionChoice(
+        origin: String,
+        resources: Collection<SitePermissionResource>,
+        onDecision: (PermissionDecision) -> Unit
+    ) {
+        permissionDialog = AlertDialog.Builder(this)
+            .setTitle(R.string.permission_title)
+            .setMessage(getString(
+                R.string.permission_message_origin,
+                origin,
+                resources.joinToString { resourceLabel(it) }
+            ))
+            .setPositiveButton(R.string.permission_allow_once) { _, _ ->
+                permissionDialog = null
+                onDecision(PermissionDecision.ALLOW_ONCE)
+            }
+            .setNeutralButton(R.string.permission_allow_session) { _, _ ->
+                permissionDialog = null
+                onDecision(PermissionDecision.ALLOW_SESSION)
+            }
+            .setNegativeButton(R.string.permission_deny) { _, _ ->
+                permissionDialog = null
+                onDecision(PermissionDecision.DENY)
+            }
+            .setOnCancelListener {
+                permissionDialog = null
+                onDecision(PermissionDecision.DENY)
+            }
+            .show()
+    }
+
+    private fun finishGeolocationRequest(
+        origin: String,
+        callback: GeolocationPermissions.Callback,
+        decision: PermissionDecision
+    ) {
+        val key = permissionPolicy.key(origin, SitePermissionResource.LOCATION)
+        if (key == null || !permissionPolicy.applyDecision(key, decision)) {
+            if (activeGeolocationCallback === callback) {
+                activeGeolocationOrigin = null
+                activeGeolocationCallback = null
+            }
+            callback.invoke(origin, false, false)
+            return
+        }
+        ensureOsPermissions(
+            listOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            )
+        ) {
+            if (activeGeolocationCallback !== callback || activeGeolocationOrigin != origin) {
+                return@ensureOsPermissions
+            }
+            activeGeolocationOrigin = null
+            activeGeolocationCallback = null
+            // Android 12+ may grant approximate location while denying precise location.
+            val granted = ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+            callback.invoke(origin, granted, false)
+        }
+    }
+
     /** The active tab's engine. A getter keeps every call site engine-agnostic and tab-aware. */
     private val engine: BrowserEngine get() = tabManager.activeEngine
 
     private var desktopMode = false
+    private var siteBrowsingSettings: Map<String, SiteBrowsingSettings> = emptyMap()
+    private var activeBrowsingSettings = SiteBrowsingPolicy.resolve(null, false)
     private var searchTemplate = SettingsStore.DEFAULT_SEARCH
     private var directNav = false
     private var cursorSpeedSetting = SettingsStore.DEFAULT_CURSOR_SPEED
     private var hintShownAlready = false
 
     private var isFullscreen = false
-    private var overlayFullscreen = false
     private var exitFullscreen: (() -> Unit)? = null
+    private var fullscreenView: View? = null
+    private var fullscreenOriginalParent: ViewGroup? = null
+    private var fullscreenOriginalIndex = -1
+    private var fullscreenOriginalLayoutParams: ViewGroup.LayoutParams? = null
     private var centerLongHandled = false
     private var currentHost: String? = null
     private var lastBlockToast = 0L
@@ -168,7 +318,7 @@ class BrowserActivity : AppCompatActivity() {
             val startup = withContext(Dispatchers.IO) {
                 val browserStore = BrowserStore(applicationContext)
                 val savedTabsStore = TabsStore(applicationContext)
-                val savedTabs = savedTabsStore.load()
+                val savedTabs = if (isIncognito) emptyList() else savedTabsStore.load()
                 StartupData(
                     settings = settings.snapshot(),
                     browserStore = browserStore,
@@ -190,6 +340,7 @@ class BrowserActivity : AppCompatActivity() {
             this@BrowserActivity.cursorSpeedSetting = cursorSpeed
             this@BrowserActivity.directNav = directNav
             this@BrowserActivity.hintShownAlready = firstRunHintShown
+            this@BrowserActivity.siteBrowsingSettings = siteBrowsingSettings
             AdBlocker.networkEnabled = blockNetwork
             AdBlocker.cosmeticEnabled = blockCosmetic
             AdBlocker.popupEnabled = blockPopups
@@ -206,7 +357,7 @@ class BrowserActivity : AppCompatActivity() {
             homeUrl = HOME_URL,
             create = { cb -> WebViewEngine(this, cb) },
             init = { e ->
-                e.setDesktopMode(desktopMode)
+                applyBrowsingSettings(e, null)
                 e.setBlockingEnabled(AdBlocker.networkEnabled)
                 e.applyPopupPolicy()
             },
@@ -224,8 +375,10 @@ class BrowserActivity : AppCompatActivity() {
         binding.startupOverlay.visibility = View.GONE
         syncHomeVisibility(requestFocus = true)
         binding.root.post { reportFullyDrawn() }
-        checkForUpdates(manual = false)
-        maybeShowFirstRunHint()
+        if (!isIncognito) {
+            checkForUpdates(manual = false)
+            maybeShowFirstRunHint()
+        }
     }
 
     /** One-time overlay explaining the remote controls (cursor / OK / BACK / RIGHT / long-press). */
@@ -266,7 +419,7 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     private fun persistTabs() {
-        if (::tabManager.isInitialized && ::tabsStore.isInitialized && tabManager.hasTabs) {
+        if (!isIncognito && ::tabManager.isInitialized && ::tabsStore.isInitialized && tabManager.hasTabs) {
             tabsStore.save(tabManager.snapshot(), tabManager.activePosition())
         }
     }
@@ -465,7 +618,8 @@ class BrowserActivity : AppCompatActivity() {
         store.bookmarks.take(HOME_TILE_LIMIT).forEach {
             addHomeTile(binding.homeBookmarkGrid, HomeTile(it.title, it.url), true)
         }
-        HomeContent.recent(store.history, HOME_TILE_LIMIT).forEach {
+        val recentSites = if (isIncognito) emptyList() else HomeContent.recent(store.history, HOME_TILE_LIMIT)
+        recentSites.forEach {
             addHomeTile(binding.homeRecentGrid, it, false)
         }
         if (binding.homeBookmarkGrid.childCount == 0) addHomeEmpty(binding.homeBookmarkGrid)
@@ -527,24 +681,31 @@ class BrowserActivity : AppCompatActivity() {
     private fun showMenu() {
         val url = engine.currentUrl()
         val bookmarked = url != null && store.isBookmarked(url)
-        val actions = listOf(
-            getString(R.string.settings_title) to ::showSettings,
+        val actions = buildList {
+            if (!isIncognito) add(getString(R.string.settings_title) to ::showSettings)
+            addAll(listOf(
             getString(R.string.menu_tabs) to ::showTabSwitcher,
             getString(R.string.menu_home) to ::showHome,
             getString(R.string.menu_bookmarks) to ::showBookmarks,
-            getString(R.string.menu_history) to ::showHistory,
             getString(R.string.menu_downloads) to ::showDownloads,
-            getString(if (bookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark) to
-                ::toggleBookmark,
             getString(R.string.menu_new_tab) to ::openNewTab,
             getString(R.string.menu_close_tab) to { tabManager.closeActive() },
             getString(R.string.menu_voice) to ::launchVoiceSearch,
             getString(R.string.menu_zoom_in) to { engine.zoomIn() },
-            getString(R.string.menu_zoom_out) to { engine.zoomOut() },
-            getString(R.string.menu_update) to { checkForUpdates(manual = true) }
-        )
+            getString(R.string.menu_zoom_out) to { engine.zoomOut() }
+            ))
+            if (!isIncognito) {
+                add(3, getString(R.string.menu_history) to ::showHistory)
+                add(getString(if (bookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark) to
+                    ::toggleBookmark)
+                add(getString(R.string.menu_new_private_tab) to ::openPrivateTab)
+                add(getString(R.string.menu_clear_browsing_data) to ::confirmClearBrowsingData)
+                add(getString(R.string.menu_about) to ::showDiagnostics)
+                add(getString(R.string.menu_update) to { checkForUpdates(manual = true) })
+            }
+        }
         AlertDialog.Builder(this)
-            .setTitle(R.string.action_menu)
+            .setTitle(if (isIncognito) R.string.incognito_title else R.string.action_menu)
             .setItems(actions.map { it.first }.toTypedArray()) { _, which -> actions[which].second() }
             .setNegativeButton(R.string.action_close, null)
             .show()
@@ -554,6 +715,128 @@ class BrowserActivity : AppCompatActivity() {
         tabManager.newTab(HOME_URL)
         binding.urlBar.setText("")
         showHome()
+    }
+
+    private fun openPrivateTab() {
+        startActivity(Intent(this, IncognitoBrowserActivity::class.java))
+    }
+
+    private fun applyBrowsingSettings(browser: BrowserEngine, host: String?) {
+        val resolved = SiteBrowsingPolicy.resolveForHost(siteBrowsingSettings, host, desktopMode)
+        browser.setBrowsingMode(
+            desktopIdentity = resolved.desktopMode,
+            useWideViewPort = resolved.useWideViewPort,
+            loadWithOverviewMode = resolved.loadWithOverviewMode
+        )
+        if (::tabManager.isInitialized && tabManager.hasTabs && browser === tabManager.activeEngine) {
+            activeBrowsingSettings = resolved
+        }
+    }
+
+    private fun showDiagnostics() {
+        val webView = engine.view as? WebView ?: return
+        webView.evaluateJavascript(
+            "(function(){return JSON.stringify({fullscreenEnabled:!!document.fullscreenEnabled});})()"
+        ) { raw ->
+            val fullscreenEnabled = runCatching {
+                val json = org.json.JSONTokener(raw).nextValue() as? String
+                org.json.JSONObject(json.orEmpty()).optBoolean("fullscreenEnabled")
+            }.getOrNull()
+            val webViewPackage = WebViewCompat.getCurrentWebViewPackage(this)
+            val hints = if (WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) {
+                runCatching { WebSettingsCompat.getUserAgentMetadata(webView.settings) }.getOrNull()
+            } else null
+            val report = SupportReportBuilder.build(
+                SupportReportInput(
+                    cometVersionName = BuildConfig.VERSION_NAME,
+                    cometVersionCode = BuildConfig.VERSION_CODE.toLong(),
+                    webViewPackage = webViewPackage?.packageName,
+                    webViewVersion = webViewPackage?.versionName,
+                    androidVersion = Build.VERSION.RELEASE,
+                    androidSdk = Build.VERSION.SDK_INT,
+                    deviceManufacturer = Build.MANUFACTURER,
+                    deviceModel = Build.MODEL,
+                    activeIdentity = activeBrowsingSettings.identity.name.replace('_', '-'),
+                    viewport = SupportViewport(
+                        mode = activeBrowsingSettings.viewport.name.replace('_', '-'),
+                        useWideViewPort = webView.settings.useWideViewPort,
+                        loadWithOverviewMode = webView.settings.loadWithOverviewMode
+                    ),
+                    userAgent = webView.settings.userAgentString,
+                    clientHints = hints?.let { metadata ->
+                        UserAgentClientHints(
+                            brands = metadata.brandVersionList.map {
+                                UserAgentBrand(it.brand, it.majorVersion)
+                            },
+                            platform = metadata.platform,
+                            platformVersion = metadata.platformVersion,
+                            architecture = metadata.architecture,
+                            model = metadata.model,
+                            mobile = metadata.isMobile,
+                            bitness = metadata.bitness,
+                            wow64 = metadata.isWow64
+                        )
+                    },
+                    fullscreenEnabled = fullscreenEnabled,
+                    currentUrl = engine.currentUrl()
+                )
+            )
+            val text = report.toCopyText()
+            AlertDialog.Builder(this)
+                .setTitle(R.string.menu_about)
+                .setMessage(text)
+                .setPositiveButton(R.string.diagnostics_copy) { _, _ ->
+                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Comet support report", text))
+                    toast(R.string.diagnostics_copied)
+                }
+                .setNegativeButton(R.string.action_close, null)
+                .show()
+        }
+    }
+
+    private fun confirmClearBrowsingData() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.clear_data_title)
+            .setMessage(R.string.clear_data_message)
+            .setPositiveButton(R.string.clear_data_action) { _, _ -> clearBrowsingData() }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun clearBrowsingData(onComplete: (() -> Unit)? = null) {
+        cancelPermissionPrompt(deny = true)
+        permissionPolicy.clearSessionGrants()
+        if (::tabManager.isInitialized) {
+            tabManager.forEachEngine { browser ->
+                (browser.view as? WebView)?.apply {
+                    clearCache(true)
+                    clearHistory()
+                    clearFormData()
+                }
+            }
+        }
+        WebStorage.getInstance().deleteAllData()
+        GeolocationPermissions.getInstance().clearAll()
+        WebViewDatabase.getInstance(this).apply {
+            clearFormData()
+            clearHttpAuthUsernamePassword()
+            clearUsernamePassword()
+        }
+        WebView.clearClientCertPreferences(null)
+        CookieManager.getInstance().removeAllCookies {
+            CookieManager.getInstance().flush()
+            if (!isIncognito) {
+                store.clearHistory()
+                tabManager.destroyAll()
+                tabManager.newTab(HOME_URL)
+                binding.urlBar.setText("")
+                showHome()
+                toast(R.string.clear_data_done)
+            }
+            onComplete?.invoke()
+        }
     }
 
     private fun onTabsChanged() {
@@ -888,6 +1171,16 @@ class BrowserActivity : AppCompatActivity() {
         val dlg = DialogSettingsBinding.inflate(layoutInflater)
         dlg.switchDesktop.isChecked = desktopMode
 
+        val siteModeLabels = arrayOf(
+            getString(R.string.settings_mode_default),
+            getString(R.string.settings_mode_mobile_tv),
+            getString(R.string.settings_mode_desktop)
+        )
+        val siteModeAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, siteModeLabels)
+        siteModeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        dlg.spinnerSiteIdentity.adapter = siteModeAdapter
+        dlg.spinnerSiteViewport.adapter = siteModeAdapter
+
         val searchAdapter = ArrayAdapter.createFromResource(
             this, R.array.search_engine_labels, android.R.layout.simple_spinner_item
         )
@@ -911,6 +1204,17 @@ class BrowserActivity : AppCompatActivity() {
         dlg.seekCursorSpeed.contentDescription = getString(R.string.settings_cursor_speed)
 
         val host = currentHost
+        val storedSiteSettings = SiteBrowsingPolicy.settingsForHost(siteBrowsingSettings, host)
+            ?: SiteBrowsingSettings()
+        dlg.spinnerSiteIdentity.setSelection(storedSiteSettings.identity.ordinal)
+        dlg.spinnerSiteViewport.setSelection(storedSiteSettings.viewport.ordinal)
+        dlg.spinnerSiteIdentity.isEnabled = host != null
+        dlg.spinnerSiteViewport.isEnabled = host != null
+        dlg.siteBrowsingLabel.text = if (host != null) {
+            getString(R.string.settings_site_browsing_host, host)
+        } else getString(R.string.settings_site_browsing)
+        dlg.spinnerSiteIdentity.contentDescription = getString(R.string.settings_site_identity)
+        dlg.spinnerSiteViewport.contentDescription = getString(R.string.settings_site_viewport)
         dlg.switchAllowSite.isEnabled = host != null
         dlg.switchAllowSite.isChecked = AdBlocker.isAllowlisted(host)
         dlg.allowSiteLabel.text =
@@ -923,7 +1227,6 @@ class BrowserActivity : AppCompatActivity() {
             .setView(dlg.root)
             .setPositiveButton(R.string.action_apply) { _, _ ->
                 val newDesktop = dlg.switchDesktop.isChecked
-                val desktopChanged = newDesktop != desktopMode
                 desktopMode = newDesktop
                 searchTemplate = SearchEngines.templateAt(dlg.spinnerSearch.selectedItemPosition)
 
@@ -940,9 +1243,16 @@ class BrowserActivity : AppCompatActivity() {
                 }
 
                 val allowChecked = dlg.switchAllowSite.isChecked
+                val newSiteSettings = SiteBrowsingSettings(
+                    identity = BrowsingIdentity.entries[dlg.spinnerSiteIdentity.selectedItemPosition],
+                    viewport = BrowsingViewport.entries[dlg.spinnerSiteViewport.selectedItemPosition]
+                )
                 if (host != null) {
                     if (allowChecked) AdBlocker.setAllowlist(AdBlocker.currentAllowlist() + host)
                     else AdBlocker.setAllowlist(AdBlocker.currentAllowlist() - host)
+                    siteBrowsingSettings = siteBrowsingSettings.toMutableMap().apply {
+                        if (newSiteSettings.isDefault) remove(host) else put(host, newSiteSettings)
+                    }
                 }
 
                 lifecycleScope.launch {
@@ -955,10 +1265,12 @@ class BrowserActivity : AppCompatActivity() {
                     settings.setDirectNav(directNav)
                     settings.setCursorSpeed(cursorSpeedSetting)
                     if (host != null) settings.setSiteAllowlisted(host, allowChecked)
+                    if (host != null) settings.setSiteBrowsingSettings(host, newSiteSettings)
                 }
 
-                if (desktopChanged) tabManager.forEachEngine { it.setDesktopMode(newDesktop) }
-                else engine.reload()
+                tabManager.forEachEngine { browser ->
+                    applyBrowsingSettings(browser, AdBlocker.hostOf(browser.currentUrl()))
+                }
             }
             .setNegativeButton(R.string.action_cancel, null)
             .show()
@@ -1293,6 +1605,19 @@ class BrowserActivity : AppCompatActivity() {
 
         override fun onUrlChanged(url: String) {
             currentHost = AdBlocker.hostOf(url)
+            val resolved = SiteBrowsingPolicy.resolveForHost(
+                siteBrowsingSettings,
+                currentHost,
+                desktopMode
+            )
+            if (resolved != activeBrowsingSettings) {
+                activeBrowsingSettings = resolved
+                engine.setBrowsingMode(
+                    resolved.desktopMode,
+                    resolved.useWideViewPort,
+                    resolved.loadWithOverviewMode
+                )
+            }
             if (!binding.urlBar.hasFocus() && url != "about:blank") {
                 binding.urlBar.setText(url)
             }
@@ -1316,7 +1641,7 @@ class BrowserActivity : AppCompatActivity() {
         }
 
         override fun onPageFinished(url: String) {
-            store.recordVisit(engine.currentTitle() ?: url, url)
+            if (!isIncognito) store.recordVisit(engine.currentTitle() ?: url, url)
         }
 
         override fun onDownloadRequested(url: String, userAgent: String?, mimeType: String?) {
@@ -1334,51 +1659,46 @@ class BrowserActivity : AppCompatActivity() {
         }
 
         override fun onPermissionRequest(request: PermissionRequest) {
-            AlertDialog.Builder(this@BrowserActivity)
-                .setTitle(R.string.permission_title)
-                .setMessage(getString(R.string.permission_message, request.resources.joinToString()))
-                .setPositiveButton(R.string.permission_allow) { _, _ ->
-                    // Grant to the page only after the matching Android runtime permission is held,
-                    // otherwise getUserMedia would "succeed" but produce nothing.
-                    val osPerms = request.resources.mapNotNull {
-                        when (it) {
-                            PermissionRequest.RESOURCE_VIDEO_CAPTURE -> Manifest.permission.CAMERA
-                            PermissionRequest.RESOURCE_AUDIO_CAPTURE -> Manifest.permission.RECORD_AUDIO
-                            else -> null
-                        }
-                    }
-                    ensureOsPermissions(osPerms) { ok ->
-                        if (ok) request.grant(request.resources) else request.deny()
-                    }
-                }
-                .setNegativeButton(R.string.permission_deny) { _, _ -> request.deny() }
-                .setOnCancelListener { request.deny() }
-                .show()
+            cancelPermissionPrompt(deny = true)
+            activePermissionRequest = request
+            val origin = request.origin.toString()
+            val initial = permissionPolicy.resolve(origin, request.resources.toList())
+            if (!initial.hasPendingDecisions) {
+                finishPermissionRequest(request, origin, emptyMap())
+                return
+            }
+            showPermissionChoice(origin, initial.pendingDecisions.map { it.resource }) { decision ->
+                if (activePermissionRequest !== request) return@showPermissionChoice
+                val decisions = initial.pendingDecisions.associateWith { decision }
+                finishPermissionRequest(request, origin, decisions)
+            }
+        }
+
+        override fun onPermissionRequestCanceled(request: PermissionRequest) {
+            if (activePermissionRequest === request) cancelPermissionPrompt(deny = false)
         }
 
         override fun onGeolocationPrompt(origin: String, callback: GeolocationPermissions.Callback) {
-            AlertDialog.Builder(this@BrowserActivity)
-                .setTitle(R.string.permission_title)
-                .setMessage(getString(R.string.permission_location, origin))
-                .setPositiveButton(R.string.permission_allow) { _, _ ->
-                    ensureOsPermissions(
-                        listOf(
-                            Manifest.permission.ACCESS_FINE_LOCATION,
-                            Manifest.permission.ACCESS_COARSE_LOCATION
-                        )
-                    ) {
-                        // Users can grant only COARSE on Android 12+; either is enough for the page.
-                        val granted = ContextCompat.checkSelfPermission(
-                            this@BrowserActivity, Manifest.permission.ACCESS_COARSE_LOCATION
-                        ) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(
-                            this@BrowserActivity, Manifest.permission.ACCESS_FINE_LOCATION
-                        ) == PackageManager.PERMISSION_GRANTED
-                        callback.invoke(origin, granted, false)
-                    }
-                }
-                .setNegativeButton(R.string.permission_deny) { _, _ -> callback.invoke(origin, false, false) }
-                .setOnCancelListener { callback.invoke(origin, false, false) }
-                .show()
+            cancelPermissionPrompt(deny = true)
+            val key = permissionPolicy.key(origin, SitePermissionResource.LOCATION)
+            if (key == null) {
+                callback.invoke(origin, false, false)
+                return
+            }
+            activeGeolocationOrigin = origin
+            activeGeolocationCallback = callback
+            if (permissionPolicy.isGrantedForSession(key)) {
+                finishGeolocationRequest(origin, callback, PermissionDecision.ALLOW_ONCE)
+                return
+            }
+            showPermissionChoice(origin, listOf(SitePermissionResource.LOCATION)) { decision ->
+                if (activeGeolocationCallback !== callback) return@showPermissionChoice
+                finishGeolocationRequest(origin, callback, decision)
+            }
+        }
+
+        override fun onGeolocationPromptCanceled() {
+            if (activeGeolocationCallback != null) cancelPermissionPrompt(deny = false)
         }
 
         override fun onSslError(handler: SslErrorHandler, error: SslError) {
@@ -1430,42 +1750,64 @@ class BrowserActivity : AppCompatActivity() {
             return true
         }
 
+        @Suppress("DEPRECATION") // Legacy flag complements Insets on older/vendor TV builds.
         override fun onEnterFullscreen(fullscreenView: View, onExit: () -> Unit) {
             cursor.stopMove()
             isFullscreen = true
             exitFullscreen = onExit
-            // WebView hands us a detached custom view to overlay full-screen.
-            overlayFullscreen = fullscreenView.parent == null
-            if (overlayFullscreen) {
-                binding.fullscreenContainer.addView(
-                    fullscreenView,
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
-                binding.fullscreenContainer.visibility = View.VISIBLE
-                binding.browserChrome.visibility = View.GONE
-            } else {
-                binding.topBar.visibility = View.GONE
-                binding.progress.visibility = View.GONE
+            // Providers normally hand us a detached view, but some keep it attached. Always move
+            // it into our dedicated overlay so it cannot remain clipped inside the page WebView.
+            val providerParent = fullscreenView.parent
+            if (providerParent != null && providerParent !is ViewGroup) {
+                // An attached view we cannot safely detach would crash addView below. Reject this
+                // provider-specific request cleanly and let WebView resume inline rendering.
+                onExit()
+                return
             }
+            this@BrowserActivity.fullscreenView = fullscreenView.also { view ->
+                fullscreenOriginalParent = providerParent
+                fullscreenOriginalIndex = fullscreenOriginalParent?.indexOfChild(view) ?: -1
+                fullscreenOriginalLayoutParams = view.layoutParams
+            }
+            fullscreenOriginalParent?.removeView(fullscreenView)
+            binding.fullscreenContainer.removeAllViews()
+            binding.fullscreenContainer.addView(
+                fullscreenView,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            binding.fullscreenContainer.visibility = View.VISIBLE
+            binding.browserChrome.visibility = View.GONE
             fullscreenView.isFocusable = true
             fullscreenView.isFocusableInTouchMode = true
             fullscreenView.requestFocus()
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
             setSystemBars(visible = false)
         }
 
+        @Suppress("DEPRECATION") // Clear the compatibility flag added on entry.
         override fun onExitFullscreen() {
             isFullscreen = false
             exitFullscreen = null
-            if (overlayFullscreen) {
-                binding.fullscreenContainer.removeAllViews()
-                binding.fullscreenContainer.visibility = View.GONE
-                binding.browserChrome.visibility = View.VISIBLE
-            } else {
-                binding.topBar.visibility = View.VISIBLE
+            val view = fullscreenView
+            binding.fullscreenContainer.removeView(view)
+            val originalParent = fullscreenOriginalParent
+            if (view?.parent == null && originalParent != null) {
+                // If the provider callback did not reclaim its attached view, restore ownership.
+                runCatching {
+                    val index = fullscreenOriginalIndex.coerceIn(0, originalParent.childCount)
+                    originalParent.addView(view, index, fullscreenOriginalLayoutParams)
+                }
             }
+            fullscreenView = null
+            fullscreenOriginalParent = null
+            fullscreenOriginalIndex = -1
+            fullscreenOriginalLayoutParams = null
+            binding.fullscreenContainer.visibility = View.GONE
+            binding.browserChrome.visibility = View.VISIBLE
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
             setSystemBars(visible = true)
             if (tabManager.hasTabs) engine.view.requestFocus()
         }
@@ -1509,6 +1851,8 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        cancelPermissionPrompt(deny = true)
+        if (isIncognito) clearBrowsingData()
         if (::tabManager.isInitialized) tabManager.destroyAll()
         super.onDestroy()
     }

@@ -11,6 +11,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.tdarby.comet.adblock.AdBlocker
+import com.tdarby.comet.adblock.PopupGuard
 import com.tdarby.comet.engine.EngineCallbacks
 
 /** Handles progress, title, and HTML5 fullscreen video for the WebView engine. */
@@ -42,8 +43,9 @@ class BrowserWebChromeClient(
         fun route(url: String?) {
             if (handled) return
             handled = true
-            if (!AdBlocker.popupEnabled && !url.isNullOrBlank()) callbacks.onOpenInNewTab(url)
-            else callbacks.onPopupBlocked(url)
+            if (PopupGuard.shouldOpenNewTab(isUserGesture, AdBlocker.popupEnabled, url)) {
+                callbacks.onOpenInNewTab(requireNotNull(url))
+            } else callbacks.onPopupBlocked(url)
             capture.post { capture.destroy() }
         }
         capture.webViewClient = object : WebViewClient() {
@@ -76,11 +78,19 @@ class BrowserWebChromeClient(
         callbacks.onPermissionRequest(request)
     }
 
+    override fun onPermissionRequestCanceled(request: PermissionRequest) {
+        callbacks.onPermissionRequestCanceled(request)
+    }
+
     override fun onGeolocationPermissionsShowPrompt(
         origin: String,
         callback: GeolocationPermissions.Callback
     ) {
         callbacks.onGeolocationPrompt(origin, callback)
+    }
+
+    override fun onGeolocationPermissionsHidePrompt() {
+        callbacks.onGeolocationPromptCanceled()
     }
 
     override fun onShowCustomView(view: View, callback: CustomViewCallback) {
@@ -99,9 +109,12 @@ class BrowserWebChromeClient(
 
     private fun hideCustom() {
         if (customView == null) return
-        customViewCallback?.onCustomViewHidden()
+        val callback = customViewCallback
         customView = null
         customViewCallback = null
+        // Clear state before notifying the provider: that callback may synchronously re-enter
+        // onHideCustomView, which must remain idempotent.
+        callback?.onCustomViewHidden()
         callbacks.onExitFullscreen()
     }
 

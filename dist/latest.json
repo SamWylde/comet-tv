@@ -1,10 +1,10 @@
 {
   "webview": {
-    "versionCode": 11,
-    "versionName": "1.0.10",
+    "versionCode": 12,
+    "versionName": "1.1.0",
     "apkUrl": "https://github.com/SamWylde/comet-tv/releases/latest/download/app-webview-universal-release.apk",
-    "sha256": "4c0d866c1dbff4ddfde528efd0c1313e5a455ac60f51a07af44fd5e53708f267",
-    "notes": "Makes the on-screen cursor smooth and precise. Quick D-pad taps now move only 3dp so small links and controls are reachable, while held directions use frame-timed acceleration for fast movement across the TV screen. Cursor speed settings still scale held motion without sacrificing precision.",
+    "sha256": "4bcb8cc3c0a7bb1b377bd7dc3d34e93488c6d63ee5a7d9a08b5f2ad06a413842",
+    "notes": "Adds per-site Mobile/TV and Desktop identity/viewport profiles; an About/Diagnostics support report; isolated private tabs; complete browsing-data deletion; one-time, size-limited blob downloads; and origin-scoped camera, microphone, protected-media, and location permissions with allow-once or session choices. Also improves UA Client Hint consistency, fullscreen video handling, and popup blocking.",
     "required": false
   }
 }

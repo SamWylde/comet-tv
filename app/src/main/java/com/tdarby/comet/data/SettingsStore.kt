@@ -28,6 +28,9 @@ class SettingsStore(context: Context) {
     val cursorSpeed: Flow<Int> = ds.data.map { it[KEY_CURSOR_SPEED] ?: DEFAULT_CURSOR_SPEED }
     val directNav: Flow<Boolean> = ds.data.map { it[KEY_DIRECT_NAV] ?: false }
     val firstRunHintShown: Flow<Boolean> = ds.data.map { it[KEY_HINT_SHOWN] ?: false }
+    val siteBrowsingSettings: Flow<Map<String, SiteBrowsingSettings>> = ds.data.map {
+        SiteBrowsingSettingsJson.decode(it[KEY_SITE_BROWSING_SETTINGS])
+    }
 
     /** Read the complete startup configuration from one DataStore snapshot. */
     suspend fun snapshot(): Snapshot {
@@ -42,7 +45,10 @@ class SettingsStore(context: Context) {
             searchTemplate = prefs[KEY_SEARCH] ?: DEFAULT_SEARCH,
             cursorSpeed = prefs[KEY_CURSOR_SPEED] ?: DEFAULT_CURSOR_SPEED,
             directNav = prefs[KEY_DIRECT_NAV] ?: false,
-            firstRunHintShown = prefs[KEY_HINT_SHOWN] ?: false
+            firstRunHintShown = prefs[KEY_HINT_SHOWN] ?: false,
+            siteBrowsingSettings = SiteBrowsingSettingsJson.decode(
+                prefs[KEY_SITE_BROWSING_SETTINGS]
+            )
         )
     }
 
@@ -56,6 +62,39 @@ class SettingsStore(context: Context) {
     suspend fun cursorSpeedNow(): Int = cursorSpeed.first()
     suspend fun directNavNow(): Boolean = directNav.first()
     suspend fun firstRunHintShownNow(): Boolean = firstRunHintShown.first()
+    suspend fun siteBrowsingSettingsNow(): Map<String, SiteBrowsingSettings> =
+        siteBrowsingSettings.first()
+
+    suspend fun getSiteBrowsingSettings(host: String): SiteBrowsingSettings? =
+        SiteBrowsingPolicy.settingsForHost(siteBrowsingSettingsNow(), host)
+
+    /** Stores an exact-host override. An all-default value removes the existing override. */
+    suspend fun setSiteBrowsingSettings(host: String, settings: SiteBrowsingSettings) {
+        val normalizedHost = requireNotNull(SiteBrowsingPolicy.normalizeHost(host)) {
+            "Invalid site host"
+        }
+        ds.edit { prefs ->
+            val current = SiteBrowsingSettingsJson.decode(
+                prefs[KEY_SITE_BROWSING_SETTINGS]
+            ).toMutableMap()
+            if (settings.isDefault) current.remove(normalizedHost)
+            else current[normalizedHost] = settings
+            prefs[KEY_SITE_BROWSING_SETTINGS] = SiteBrowsingSettingsJson.encode(current)
+        }
+    }
+
+    suspend fun removeSiteBrowsingSettings(host: String) {
+        val normalizedHost = SiteBrowsingPolicy.normalizeHost(host) ?: return
+        ds.edit { prefs ->
+            val current = SiteBrowsingSettingsJson.decode(
+                prefs[KEY_SITE_BROWSING_SETTINGS]
+            ).toMutableMap()
+            if (current.remove(normalizedHost) != null) {
+                prefs[KEY_SITE_BROWSING_SETTINGS] = SiteBrowsingSettingsJson.encode(current)
+            }
+        }
+    }
+
     suspend fun setFirstRunHintShown(shown: Boolean) = ds.edit { it[KEY_HINT_SHOWN] = shown }
 
     suspend fun setSearchTemplate(template: String) = ds.edit { it[KEY_SEARCH] = template }
@@ -90,6 +129,7 @@ class SettingsStore(context: Context) {
         private val KEY_CURSOR_SPEED = intPreferencesKey("cursor_speed")
         private val KEY_DIRECT_NAV = booleanPreferencesKey("direct_nav")
         private val KEY_HINT_SHOWN = booleanPreferencesKey("first_run_hint_shown")
+        private val KEY_SITE_BROWSING_SETTINGS = stringPreferencesKey("site_browsing_settings_json")
 
         const val DEFAULT_SEARCH = "https://www.google.com/search?q=%s"
         /** Cursor speed slider value 1..5 (3 = normal). */
@@ -106,6 +146,7 @@ class SettingsStore(context: Context) {
         val searchTemplate: String,
         val cursorSpeed: Int,
         val directNav: Boolean,
-        val firstRunHintShown: Boolean
+        val firstRunHintShown: Boolean,
+        val siteBrowsingSettings: Map<String, SiteBrowsingSettings>
     )
 }
