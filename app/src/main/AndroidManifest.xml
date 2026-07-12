@@ -73,6 +73,16 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.IncognitoBrowserActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation|screenLayout|uiMode"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:process=":incognito"
+            android:screenOrientation="landscape"
+            android:windowSoftInputMode="stateAlwaysHidden|adjustResize"
+            tools:ignore="DiscouragedApi" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

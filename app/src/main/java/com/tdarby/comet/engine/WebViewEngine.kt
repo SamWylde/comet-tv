@@ -27,7 +27,10 @@ import com.tdarby.comet.adblock.PopupGuard
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import androidx.webkit.ScriptHandler
+import androidx.webkit.UserAgentMetadata
+import androidx.webkit.WebSettingsCompat
 import java.io.File
+import java.util.UUID
 
 /** System WebView (Chromium) implementation of [BrowserEngine]. */
 class WebViewEngine(
@@ -37,7 +40,19 @@ class WebViewEngine(
 
     private val webView = WebView(context)
     private val ctx = context.applicationContext
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var popupScript: ScriptHandler? = null
+    private val blobRequestLock = Any()
+    private var pendingBlobRequest: PendingBlobRequest? = null
+    @Volatile private var destroyed = false
+    private val defaultUserAgent = webView.settings.userAgentString
+    private val supportsUserAgentMetadata =
+        WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)
+    private val defaultUserAgentMetadata = if (supportsUserAgentMetadata) {
+        WebSettingsCompat.getUserAgentMetadata(webView.settings)
+    } else {
+        null
+    }
 
     override val view: View get() = webView
 
@@ -71,25 +86,95 @@ class WebViewEngine(
         webView.setDownloadListener { url, userAgent, _, mimeType, _ ->
             callbacks.onDownloadRequested(url, userAgent, mimeType)
         }
-        webView.addJavascriptInterface(BlobBridge(), "CometDownload")
         webView.isFocusable = true
         webView.isFocusableInTouchMode = true
     }
 
-    /** JS bridge used by [fetchBlob] to hand a read blob back to native for saving. */
-    private inner class BlobBridge {
+    private inner class PendingBlobRequest(
+        val interfaceName: String,
+        val token: String,
+        val sourceUrl: String
+    ) {
+        val bridge = BlobBridge(this)
+        val timeout = Runnable { failBlob(this) }
+    }
+
+    /** Single-request JS bridge used by [fetchBlob], never installed for the WebView lifetime. */
+    private inner class BlobBridge(private val request: PendingBlobRequest) {
         @JavascriptInterface
-        fun onBlob(dataUrl: String, mime: String?, srcUrl: String) = saveBlob(dataUrl, mime, srcUrl)
+        fun complete(token: String, dataUrl: String, mime: String?) {
+            val consumed = takeBlobRequest(request, token) ?: return
+            removeBlobBridge(consumed)
+            val payload = BlobDownloadPolicy.validate(dataUrl) ?: return
+            saveBlob(dataUrl, payload, mime, consumed.sourceUrl)
+        }
+
+        @JavascriptInterface
+        fun fail(token: String) {
+            if (token == request.token) failBlob(request)
+        }
     }
 
     override fun fetchBlob(url: String) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { beginBlobRequest(url) }
+            return
+        }
+        beginBlobRequest(url)
+    }
+
+    private fun beginBlobRequest(url: String) {
+        if (destroyed) return
+        cancelBlobRequest()
+        val request = PendingBlobRequest(
+            interfaceName = "CometBlob_${UUID.randomUUID().toString().replace("-", "")}",
+            token = UUID.randomUUID().toString(),
+            sourceUrl = url
+        )
+        synchronized(blobRequestLock) { pendingBlobRequest = request }
+        webView.addJavascriptInterface(request.bridge, request.interfaceName)
+        mainHandler.postDelayed(request.timeout, BLOB_REQUEST_TIMEOUT_MS)
+
         // Embed the URL as a safely-escaped JS string literal (prevents script injection via the URL).
         val u = org.json.JSONObject.quote(url)
-        val js = "(function(){try{var x=new XMLHttpRequest();x.open('GET',$u,true);" +
-            "x.responseType='blob';x.onload=function(){var r=new FileReader();r.onloadend=function(){" +
-            "CometDownload.onBlob(r.result,x.getResponseHeader('content-type')||'',$u);};" +
-            "r.readAsDataURL(x.response);};x.send();}catch(e){}})();"
+        val name = org.json.JSONObject.quote(request.interfaceName)
+        val token = org.json.JSONObject.quote(request.token)
+        val js = "(function(n,t,u,limit){var b=window[n],done=false;" +
+            "function fail(){if(done)return;done=true;try{b.fail(t);}catch(_){}}" +
+            "try{var x=new XMLHttpRequest();x.open('GET',u,true);x.responseType='blob';" +
+            "x.onerror=x.onabort=x.ontimeout=fail;x.onload=function(){" +
+            "if(done||!x.response||x.response.size>limit){fail();return;}" +
+            "var r=new FileReader();r.onerror=r.onabort=fail;r.onload=function(){" +
+            "if(done||typeof r.result!=='string'){fail();return;}done=true;" +
+            "try{b.complete(t,r.result,x.getResponseHeader('content-type')||'');}catch(_){}};" +
+            "r.readAsDataURL(x.response);};x.send();}catch(_){fail();}})" +
+            "($name,$token,$u,${BlobDownloadPolicy.MAX_DECODED_BYTES});"
         webView.evaluateJavascript(js, null)
+    }
+
+    private fun takeBlobRequest(request: PendingBlobRequest, token: String): PendingBlobRequest? =
+        synchronized(blobRequestLock) {
+            if (destroyed || pendingBlobRequest !== request || token != request.token) return@synchronized null
+            pendingBlobRequest = null
+            request
+        }
+
+    private fun failBlob(request: PendingBlobRequest) {
+        val consumed = takeBlobRequest(request, request.token) ?: return
+        removeBlobBridge(consumed)
+    }
+
+    private fun cancelBlobRequest() {
+        val request = synchronized(blobRequestLock) {
+            pendingBlobRequest.also { pendingBlobRequest = null }
+        } ?: return
+        removeBlobBridge(request)
+    }
+
+    private fun removeBlobBridge(request: PendingBlobRequest) {
+        mainHandler.removeCallbacks(request.timeout)
+        val remove = Runnable { if (!destroyed) webView.removeJavascriptInterface(request.interfaceName) }
+        if (Looper.myLooper() == Looper.getMainLooper()) remove.run() else mainHandler.post(remove)
     }
 
     override fun captureThumbnail(width: Int, height: Int): Bitmap? {
@@ -105,11 +190,15 @@ class WebViewEngine(
 
     // @Suppress("Recycle"): the stream is closed via out.use {} below; lint can't track it across `?: return`.
     @Suppress("Recycle")
-    private fun saveBlob(dataUrl: String, mime: String?, srcUrl: String) {
+    private fun saveBlob(
+        dataUrl: String,
+        payload: BlobDownloadPolicy.ValidatedPayload,
+        mime: String?,
+        srcUrl: String
+    ) {
         runCatching {
-            val comma = dataUrl.indexOf(',')
-            if (comma < 0) return
-            val bytes = Base64.decode(dataUrl.substring(comma + 1), Base64.DEFAULT)
+            val bytes = Base64.decode(dataUrl.substring(payload.base64Start), Base64.DEFAULT)
+            if (bytes.size != payload.decodedBytes) return
             val name = URLUtil.guessFileName(srcUrl, null, mime?.ifBlank { null })
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val values = ContentValues().apply {
@@ -135,15 +224,30 @@ class WebViewEngine(
         }
     }
 
-    override fun loadUrl(url: String) = webView.loadUrl(url)
+    override fun loadUrl(url: String) {
+        cancelBlobRequest()
+        webView.loadUrl(url)
+    }
     override fun currentUrl(): String? = webView.url
     override fun currentTitle(): String? = webView.title
     override fun canGoBack(): Boolean = webView.canGoBack()
-    override fun goBack() = webView.goBack()
+    override fun goBack() {
+        cancelBlobRequest()
+        webView.goBack()
+    }
     override fun canGoForward(): Boolean = webView.canGoForward()
-    override fun goForward() = webView.goForward()
-    override fun reload() = webView.reload()
-    override fun stop() = webView.stopLoading()
+    override fun goForward() {
+        cancelBlobRequest()
+        webView.goForward()
+    }
+    override fun reload() {
+        cancelBlobRequest()
+        webView.reload()
+    }
+    override fun stop() {
+        cancelBlobRequest()
+        webView.stopLoading()
+    }
     override fun verticalScrollOffset(): Int = webView.scrollY
 
     override fun zoomIn() { webView.zoomIn() }
@@ -172,13 +276,48 @@ class WebViewEngine(
         webView.evaluateJavascript(MediaScripts.forAction(action), null)
     }
 
-    override fun setDesktopMode(enabled: Boolean) {
-        webView.settings.userAgentString = if (enabled) DESKTOP_UA else null
-        webView.settings.useWideViewPort = enabled
-        webView.settings.loadWithOverviewMode = enabled
+    override fun setDesktopMode(enabled: Boolean) =
+        setBrowsingMode(enabled, enabled, enabled)
+
+    override fun setBrowsingMode(
+        desktopIdentity: Boolean,
+        useWideViewPort: Boolean,
+        loadWithOverviewMode: Boolean
+    ) {
+        webView.settings.userAgentString = UserAgentPolicy.userAgent(defaultUserAgent, desktopIdentity)
+        if (supportsUserAgentMetadata) {
+            val override = UserAgentPolicy.metadataOverride(defaultUserAgent, desktopIdentity)
+            val metadata = if (override == null) {
+                // Restore the provider's original Android/mobile Client Hints exactly.
+                defaultUserAgentMetadata
+            } else {
+                UserAgentMetadata.Builder(requireNotNull(defaultUserAgentMetadata))
+                    .setBrandVersionList(
+                        defaultUserAgentMetadata.brandVersionList.map { brandVersion ->
+                            UserAgentMetadata.BrandVersion.Builder(brandVersion)
+                                .setBrand(UserAgentPolicy.brand(brandVersion.brand, desktopIdentity))
+                                .build()
+                        }
+                    )
+                    .setPlatform(override.platform)
+                    .setPlatformVersion(override.platformVersion)
+                    .setArchitecture(override.architecture)
+                    .setModel(override.model)
+                    .setMobile(override.mobile)
+                    .setBitness(override.bitness)
+                    .setWow64(override.wow64)
+                    .build()
+            }
+            WebSettingsCompat.setUserAgentMetadata(webView.settings, requireNotNull(metadata))
+        }
+        webView.settings.useWideViewPort = useWideViewPort
+        webView.settings.loadWithOverviewMode = loadWithOverviewMode
         // Engine creation configures this before its first URL. Reloading about:blank here forces
         // an unnecessary Chromium navigation for every new/restored tab.
-        if (!webView.url.isNullOrBlank() && webView.url != "about:blank") webView.reload()
+        if (!webView.url.isNullOrBlank() && webView.url != "about:blank") {
+            cancelBlobRequest()
+            webView.reload()
+        }
     }
 
     override fun setBlockingEnabled(enabled: Boolean) {
@@ -213,6 +352,8 @@ class WebViewEngine(
     }
 
     override fun destroy() {
+        cancelBlobRequest()
+        destroyed = true
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             popupScript?.remove()
         }
@@ -223,9 +364,6 @@ class WebViewEngine(
     }
 
     companion object {
-        /** Desktop Chrome UA — many video players serve better streams to desktop clients. */
-        const val DESKTOP_UA =
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) " +
-                "Chrome/124.0.0.0 Safari/537.36"
+        private const val BLOB_REQUEST_TIMEOUT_MS = 2 * 60 * 1000L
     }
 }
