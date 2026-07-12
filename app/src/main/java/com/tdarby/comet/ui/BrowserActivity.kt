@@ -1056,9 +1056,11 @@ class BrowserActivity : AppCompatActivity() {
                     // address bar — an always-available way back to the URL (besides long-press OK).
                     if (cursor.atTopEdge() && engine.verticalScrollOffset() <= 0) {
                         setCursor(false)
-                    } else {
-                        cursor.move(0, -1, event.repeatCount)
+                    } else if (event.repeatCount == 0) {
+                        cursor.startMove(0, -1)
                     }
+                } else if (event.action == KeyEvent.ACTION_UP) {
+                    cursor.stopMove()
                 }
                 return true
             }
@@ -1071,7 +1073,9 @@ class BrowserActivity : AppCompatActivity() {
                         KeyEvent.KEYCODE_DPAD_RIGHT -> 1 to 0
                         else -> 0 to 1
                     }
-                    cursor.move(dx, dy, event.repeatCount)
+                    if (event.repeatCount == 0) cursor.startMove(dx, dy)
+                } else if (event.action == KeyEvent.ACTION_UP) {
+                    cursor.stopMove()
                 }
                 return true
             }
@@ -1079,11 +1083,13 @@ class BrowserActivity : AppCompatActivity() {
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
             KeyEvent.KEYCODE_BUTTON_A -> {
                 when (event.action) {
-                    KeyEvent.ACTION_DOWN ->
+                    KeyEvent.ACTION_DOWN -> {
+                        cursor.stopMove()
                         if (event.repeatCount == 1) { // first auto-repeat ≈ long press
                             centerLongHandled = true
                             onCursorLongPress()
                         }
+                    }
                     KeyEvent.ACTION_UP ->
                         if (centerLongHandled) centerLongHandled = false else cursor.click()
                 }
@@ -1425,6 +1431,7 @@ class BrowserActivity : AppCompatActivity() {
         }
 
         override fun onEnterFullscreen(fullscreenView: View, onExit: () -> Unit) {
+            cursor.stopMove()
             isFullscreen = true
             exitFullscreen = onExit
             // WebView hands us a detached custom view to overlay full-screen.
@@ -1482,6 +1489,7 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        if (::cursor.isInitialized) cursor.stopMove()
         persistTabs()
         if (::tabManager.isInitialized) tabManager.onPause()
         super.onPause()

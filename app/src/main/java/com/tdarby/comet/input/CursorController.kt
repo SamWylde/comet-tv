@@ -5,6 +5,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
+import android.view.Choreographer
 import android.widget.FrameLayout
 import android.widget.ImageView
 import com.tdarby.comet.R
@@ -44,6 +45,26 @@ class CursorController(
 
     private var x = -1f
     private var y = -1f
+    private var motionDx = 0
+    private var motionDy = 0
+    private var motionStartMs = 0L
+    private var lastFrameNanos = 0L
+    private var framePosted = false
+    private var lastEdgeScrollMs = 0L
+
+    private val frameCallback = Choreographer.FrameCallback { frameTimeNanos ->
+        framePosted = false
+        if (!active || motionDx == 0 && motionDy == 0) return@FrameCallback
+        val now = SystemClock.uptimeMillis()
+        val velocityDp = CursorMotionProfile.velocityDpPerSecond(now - motionStartMs, speedFactor)
+        if (velocityDp > 0f && lastFrameNanos > 0L) {
+            val seconds = ((frameTimeNanos - lastFrameNanos) / 1_000_000_000f).coerceIn(0f, 0.05f)
+            val distancePx = velocityDp * density * seconds
+            moveBy(motionDx * distancePx, motionDy * distancePx, now - motionStartMs)
+        }
+        lastFrameNanos = frameTimeNanos
+        postFrame()
+    }
 
     private val hideHandler = Handler(Looper.getMainLooper())
     private val hideRunnable = Runnable { pointer.visibility = View.GONE }
@@ -59,6 +80,7 @@ class CursorController(
             updatePointer()
             bumpVisibility()
         } else {
+            stopMove()
             hideHandler.removeCallbacks(hideRunnable)
             pointer.visibility = View.GONE
         }
@@ -78,8 +100,8 @@ class CursorController(
         if (x < 0f || y < 0f) center()
         val w = container.width.toFloat()
         val h = container.height.toFloat()
-        val maxX = (w - pointerSize).coerceAtLeast(0f)
-        val maxY = (h - pointerSize).coerceAtLeast(0f)
+        val maxX = (w - 1f).coerceAtLeast(0f)
+        val maxY = (h - 1f).coerceAtLeast(0f)
         val edge = dp(2).toFloat()
         val sx = dx * dp(ANALOG_STEP) * speedFactor
         val sy = dy * dp(ANALOG_STEP) * speedFactor
@@ -96,27 +118,56 @@ class CursorController(
         y = container.height / 2f
     }
 
-    /** Move the pointer; edge contact scrolls the page instead of overflowing. */
-    fun move(dx: Int, dy: Int, repeatCount: Int) {
+    /** Start frame-timed movement. Repeated key-down events do not create visible jumps. */
+    fun startMove(dx: Int, dy: Int) {
+        if (!active || dx == 0 && dy == 0) return
+        if (motionDx == dx && motionDy == dy) return
+        stopMove()
+        motionDx = dx
+        motionDy = dy
+        motionStartMs = SystemClock.uptimeMillis()
+        lastFrameNanos = 0L
+        val precisionPx = CursorMotionProfile.PRECISION_STEP_DP * density
+        moveBy(dx * precisionPx, dy * precisionPx, 0L)
+        postFrame()
+    }
+
+    fun stopMove() {
+        motionDx = 0
+        motionDy = 0
+        if (framePosted) Choreographer.getInstance().removeFrameCallback(frameCallback)
+        framePosted = false
+        lastFrameNanos = 0L
+    }
+
+    private fun postFrame() {
+        if (framePosted || motionDx == 0 && motionDy == 0) return
+        framePosted = true
+        Choreographer.getInstance().postFrameCallback(frameCallback)
+    }
+
+    /** Move by a subpixel delta; edge contact scrolls the page instead of overflowing. */
+    private fun moveBy(deltaX: Float, deltaY: Float, heldMs: Long) {
         if (container.width == 0) return
         if (x < 0f || y < 0f) center()
-        val step = stepFor(repeatCount)
         val w = container.width.toFloat()
         val h = container.height.toFloat()
-        val maxX = (w - pointerSize).coerceAtLeast(0f)
-        val maxY = (h - pointerSize).coerceAtLeast(0f)
+        val maxX = (w - 1f).coerceAtLeast(0f)
+        val maxY = (h - 1f).coerceAtLeast(0f)
         val edge = dp(2).toFloat()
 
-        // Pushing the pointer against an edge scrolls the page. Mouse-wheel events let Chromium run
-        // its own smooth, animated scrolling (and route to whatever element is under the pointer),
-        // instead of the jerky one-shot synthetic drag this used to do.
-        if (dy < 0 && y <= edge) scroll(0f, 1f, repeatCount)
-        else if (dy > 0 && y >= maxY - edge) scroll(0f, -1f, repeatCount)
-        if (dx < 0 && x <= edge) scroll(1f, 0f, repeatCount)
-        else if (dx > 0 && x >= maxX - edge) scroll(-1f, 0f, repeatCount)
+        val now = SystemClock.uptimeMillis()
+        if (now - lastEdgeScrollMs >= EDGE_SCROLL_INTERVAL_MS) {
+            val repeatEquivalent = (heldMs / 50L).toInt()
+            if (deltaY < 0 && y <= edge) scroll(0f, 1f, repeatEquivalent)
+            else if (deltaY > 0 && y >= maxY - edge) scroll(0f, -1f, repeatEquivalent)
+            if (deltaX < 0 && x <= edge) scroll(1f, 0f, repeatEquivalent)
+            else if (deltaX > 0 && x >= maxX - edge) scroll(-1f, 0f, repeatEquivalent)
+            lastEdgeScrollMs = now
+        }
 
-        x = (x + dx * step).coerceIn(0f, maxX)
-        y = (y + dy * step).coerceIn(0f, maxY)
+        x = (x + deltaX).coerceIn(0f, maxX)
+        y = (y + deltaY).coerceIn(0f, maxY)
         updatePointer()
         bumpVisibility()
     }
@@ -177,14 +228,11 @@ class CursorController(
         pointer.translationY = y
     }
 
-    /** Acceleration: small steps for taps, faster while a direction is held, scaled by speed. */
-    private fun stepFor(repeatCount: Int): Float =
-        (dp(14) + min(repeatCount, 24) * dp(3).toFloat()) * speedFactor
-
     private fun dp(value: Int): Int = (value * density).toInt()
 
     private companion object {
         const val AUTO_HIDE_MS = 5000L
         const val ANALOG_STEP = 22
+        const val EDGE_SCROLL_INTERVAL_MS = 50L
     }
 }
