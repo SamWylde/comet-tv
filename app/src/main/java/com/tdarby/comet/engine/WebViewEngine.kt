@@ -3,6 +3,8 @@ package com.tdarby.comet.engine
 import android.annotation.SuppressLint
 import android.content.ContentValues
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.os.Build
 import android.os.Environment
 import android.os.Handler
@@ -21,6 +23,10 @@ import com.tdarby.comet.R
 import com.tdarby.comet.adblock.AdBlocker
 import com.tdarby.comet.web.BrowserWebChromeClient
 import com.tdarby.comet.web.BrowserWebViewClient
+import com.tdarby.comet.adblock.PopupGuard
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
+import androidx.webkit.ScriptHandler
 import java.io.File
 
 /** System WebView (Chromium) implementation of [BrowserEngine]. */
@@ -31,6 +37,7 @@ class WebViewEngine(
 
     private val webView = WebView(context)
     private val ctx = context.applicationContext
+    private var popupScript: ScriptHandler? = null
 
     override val view: View get() = webView
 
@@ -83,6 +90,17 @@ class WebViewEngine(
             "CometDownload.onBlob(r.result,x.getResponseHeader('content-type')||'',$u);};" +
             "r.readAsDataURL(x.response);};x.send();}catch(e){}})();"
         webView.evaluateJavascript(js, null)
+    }
+
+    override fun captureThumbnail(width: Int, height: Int): Bitmap? {
+        if (width <= 0 || height <= 0 || webView.width <= 0 || webView.height <= 0) return null
+        return runCatching {
+            Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565).also { bitmap ->
+                val canvas = Canvas(bitmap)
+                canvas.scale(width / webView.width.toFloat(), height / webView.height.toFloat())
+                webView.draw(canvas)
+            }
+        }.getOrNull()
     }
 
     // @Suppress("Recycle"): the stream is closed via out.use {} below; lint can't track it across `?: return`.
@@ -151,17 +169,7 @@ class WebViewEngine(
     }
 
     override fun mediaAction(action: MediaAction) {
-        val op = when (action) {
-            MediaAction.PLAY_PAUSE -> "if(v.paused)v.play();else v.pause();"
-            MediaAction.STOP -> "v.pause();try{v.currentTime=0;}catch(e){}"
-            MediaAction.REWIND -> "try{v.currentTime=Math.max(0,v.currentTime-10);}catch(e){}"
-            MediaAction.FORWARD -> "try{v.currentTime=v.currentTime+10;}catch(e){}"
-        }
-        webView.evaluateJavascript(
-            "(function(){var m=Array.from(document.querySelectorAll('video,audio'));" +
-                "var v=m.find(function(e){return !e.paused&&!e.ended;})||m[0];if(!v)return;$op})();",
-            null
-        )
+        webView.evaluateJavascript(MediaScripts.forAction(action), null)
     }
 
     override fun setDesktopMode(enabled: Boolean) {
@@ -180,6 +188,14 @@ class WebViewEngine(
     override fun applyPopupPolicy() {
         // When popup blocking is on, JS cannot auto-open windows; otherwise it can.
         webView.settings.javaScriptCanOpenWindowsAutomatically = !AdBlocker.popupEnabled
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            if (AdBlocker.popupEnabled && popupScript == null) {
+                popupScript = WebViewCompat.addDocumentStartJavaScript(webView, PopupGuard.JS, setOf("*"))
+            } else if (!AdBlocker.popupEnabled) {
+                popupScript?.remove()
+                popupScript = null
+            }
+        }
     }
 
     override fun setSiteAllowlisted(host: String, allowlisted: Boolean) {
@@ -197,6 +213,10 @@ class WebViewEngine(
     }
 
     override fun destroy() {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            popupScript?.remove()
+        }
+        popupScript = null
         webView.stopLoading()
         (webView.parent as? ViewGroup)?.removeView(webView)
         webView.destroy()

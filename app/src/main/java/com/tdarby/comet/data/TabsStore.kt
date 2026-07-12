@@ -30,9 +30,17 @@ class TabsStore(context: Context) {
     fun load(): List<TabSnapshot> = runCatching {
         if (!file.exists()) return emptyList()
         val root = JSONObject(file.readText())
-        activeIndex = root.optInt("active", 0)
         val arr = root.optJSONArray("tabs") ?: return emptyList()
-        (0 until arr.length()).map { i ->
+        if (arr.length() == 0) return emptyList()
+        val sourceActive = root.optInt("active", 0).coerceIn(0, arr.length() - 1)
+        val limit = TabSessionPolicy.MAX_RESTORED_TABS
+        val indices = when {
+            arr.length() <= limit -> (0 until arr.length()).toList()
+            sourceActive < limit -> (0 until limit).toList()
+            else -> (0 until limit - 1).toList() + sourceActive
+        }
+        activeIndex = if (sourceActive < limit) sourceActive else limit - 1
+        indices.map { i ->
             val o = arr.getJSONObject(i)
             TabSnapshot(o.optString("u"), o.optString("t"))
         }

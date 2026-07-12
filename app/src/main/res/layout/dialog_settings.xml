@@ -13,6 +13,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
+            android:minHeight="56dp"
             android:orientation="horizontal">
 
             <TextView
@@ -24,7 +25,8 @@
             <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/switch_desktop"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content"
+                android:minHeight="56dp" />
         </LinearLayout>
 
         <LinearLayout
@@ -32,6 +34,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:gravity="center_vertical"
+            android:minHeight="56dp"
             android:orientation="horizontal">
 
             <TextView
@@ -44,6 +47,7 @@
                 android:id="@+id/spinner_search"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:minHeight="56dp"
                 android:minWidth="160dp" />
         </LinearLayout>
 
@@ -65,6 +69,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:gravity="center_vertical"
+            android:minHeight="56dp"
             android:orientation="horizontal">
 
             <TextView
@@ -76,13 +81,15 @@
             <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/switch_block_network"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content"
+                android:minHeight="56dp" />
         </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
+            android:minHeight="56dp"
             android:orientation="horizontal">
 
             <TextView
@@ -94,13 +101,15 @@
             <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/switch_block_cosmetic"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content"
+                android:minHeight="56dp" />
         </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
+            android:minHeight="56dp"
             android:orientation="horizontal">
 
             <TextView
@@ -112,13 +121,15 @@
             <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/switch_block_popups"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content"
+                android:minHeight="56dp" />
         </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
+            android:minHeight="56dp"
             android:orientation="horizontal">
 
             <TextView
@@ -130,13 +141,15 @@
             <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/switch_block_redirects"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content"
+                android:minHeight="56dp" />
         </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
+            android:minHeight="56dp"
             android:orientation="horizontal">
 
             <TextView
@@ -149,13 +162,15 @@
             <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/switch_allow_site"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content"
+                android:minHeight="56dp" />
         </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
+            android:minHeight="56dp"
             android:orientation="horizontal">
 
             <TextView
@@ -167,7 +182,8 @@
             <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/switch_direct_nav"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content"
+                android:minHeight="56dp" />
         </LinearLayout>
 
         <TextView
@@ -180,6 +196,7 @@
             android:id="@+id/seek_cursor_speed"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:minHeight="56dp"
             android:max="4" />
     </LinearLayout>
 </ScrollView>

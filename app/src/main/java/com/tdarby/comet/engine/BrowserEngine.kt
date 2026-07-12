@@ -2,6 +2,7 @@ package com.tdarby.comet.engine
 
 import android.net.Uri
 import android.net.http.SslError
+import android.graphics.Bitmap
 import android.view.View
 import android.webkit.GeolocationPermissions
 import android.webkit.HttpAuthHandler
@@ -24,6 +25,8 @@ interface EngineCallbacks {
     fun onTitleChanged(title: String?) {}
     fun onUrlChanged(url: String) {}
     fun onNavigationStateChanged(canGoBack: Boolean, canGoForward: Boolean) {}
+    fun onPageFailure(failure: PageFailure) {}
+    fun onRendererRecovered(url: String) {}
 
     /** A page requested fullscreen (HTML5 video). [onExit] returns to inline rendering. */
     fun onEnterFullscreen(fullscreenView: View, onExit: () -> Unit) {}
@@ -98,6 +101,9 @@ interface BrowserEngine {
 
     /** Save a `blob:` download (which DownloadManager can't fetch) by reading it in-page. */
     fun fetchBlob(url: String) {}
+
+    /** Small in-memory preview for the TV tab switcher; never persisted. */
+    fun captureThumbnail(width: Int, height: Int): Bitmap? = null
 
     /**
      * Resolve the link/image at a CSS-pixel point (the cursor) for a long-press context menu.

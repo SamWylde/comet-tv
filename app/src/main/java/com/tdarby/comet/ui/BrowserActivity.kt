@@ -5,6 +5,7 @@ import android.app.DownloadManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
+import android.graphics.Color
 import android.net.Uri
 import android.net.http.SslError
 import android.os.Bundle
@@ -30,7 +31,10 @@ import android.webkit.WebChromeClient
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.GridLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
@@ -54,7 +58,11 @@ import com.tdarby.comet.engine.WebViewEngine
 import com.tdarby.comet.data.BrowserStore
 import com.tdarby.comet.data.TabsStore
 import com.tdarby.comet.engine.MediaAction
+import com.tdarby.comet.engine.PageFailure
+import com.tdarby.comet.engine.PageFailureKind
 import com.tdarby.comet.input.CursorController
+import com.tdarby.comet.input.RemoteExitPolicy
+import com.tdarby.comet.input.RemoteKey
 import com.tdarby.comet.update.ReleaseManifest
 import com.tdarby.comet.update.UpdateChecker
 import com.tdarby.comet.web.TabManager
@@ -130,11 +138,13 @@ class BrowserActivity : AppCompatActivity() {
     private var centerLongHandled = false
     private var currentHost: String? = null
     private var lastBlockToast = 0L
-    private var exitBackPressCount = 0
-    private var exitSequenceDeadline = 0L
+    private val exitPolicy = RemoteExitPolicy()
+    private var exitState = RemoteExitPolicy.State()
     private var pendingIntentUrl: String? = null
     private var addressBarActive = false
     private var suppressBackCallbackUntil = 0L
+    private var homeVisible = false
+    private var currentFailure: PageFailure? = null
 
     private data class StartupData(
         val settings: SettingsStore.Snapshot,
@@ -205,12 +215,14 @@ class BrowserActivity : AppCompatActivity() {
         )
 
         wireChrome()
+        wireHome()
+        wireErrorPanel()
         registerBackHandling()
         setupCursorFocus()
 
         openInitialTabs(startup.savedTabs, startup.activeTab)
         binding.startupOverlay.visibility = View.GONE
-        focusAddressBar()
+        syncHomeVisibility(requestFocus = true)
         binding.root.post { reportFullyDrawn() }
         checkForUpdates(manual = false)
         maybeShowFirstRunHint()
@@ -308,6 +320,8 @@ class BrowserActivity : AppCompatActivity() {
         1 -> 0.5f; 2 -> 0.75f; 4 -> 1.5f; 5 -> 2.0f; else -> 1.0f
     }
 
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
     private fun wireChrome() = with(binding) {
         btnBack.setOnClickListener { if (engine.canGoBack()) engine.goBack() }
         btnForward.setOnClickListener { if (engine.canGoForward()) engine.goForward() }
@@ -325,8 +339,180 @@ class BrowserActivity : AppCompatActivity() {
         }
     }
 
+    private fun wireHome() = with(binding) {
+        homeSearchGo.setOnClickListener { navigateFromHome() }
+        homeVoice.setOnClickListener { launchVoiceSearch() }
+        homeSearch.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_GO) {
+                navigateFromHome(); true
+            } else false
+        }
+        bindTvKeyboard(homeSearch)
+        bindTvKeyboard(urlBar)
+    }
+
+    /** TV text fields do not consistently summon an IME from DPAD_CENTER without an explicit request. */
+    private fun bindTvKeyboard(editor: EditText) {
+        editor.setOnClickListener { showTvKeyboard(editor) }
+        editor.setOnKeyListener { _, keyCode, event ->
+            val enter = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+            if (!enter) return@setOnKeyListener false
+            if (event.action == KeyEvent.ACTION_UP) showTvKeyboard(editor)
+            true
+        }
+    }
+
+    private fun showTvKeyboard(editor: EditText) {
+        addressBarActive = editor === binding.urlBar
+        editor.requestFocus()
+        editor.selectAll()
+        editor.post {
+            if (!editor.isAttachedToWindow) return@post
+            editor.requestFocus()
+            val input = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+            input.restartInput(editor)
+            input.showSoftInput(editor, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            WindowInsetsControllerCompat(window, editor).show(WindowInsetsCompat.Type.ime())
+        }
+    }
+
+    private fun wireErrorPanel() = with(binding) {
+        errorRetry.setOnClickListener {
+            val failure = currentFailure ?: return@setOnClickListener
+            hideErrorPanel()
+            engine.loadUrl(failure.url)
+        }
+        errorBack.setOnClickListener {
+            hideErrorPanel()
+            if (engine.canGoBack()) engine.goBack() else showHome()
+        }
+        errorHome.setOnClickListener { showHome() }
+    }
+
+    private fun navigateFromHome() {
+        val query = binding.homeSearch.text?.toString().orEmpty().trim()
+        if (query.isEmpty()) return
+        hideHome()
+        engine.loadUrl(UrlUtils.toUrlOrSearch(query, searchTemplate))
+        if (directNav) engine.view.requestFocus() else setCursor(true)
+    }
+
+    private fun showHome() {
+        if (tabManager.activeUrl() != HOME_URL) engine.loadUrl(HOME_URL)
+        homeVisible = true
+        currentFailure = null
+        cursor.setActive(false)
+        binding.errorPanel.visibility = View.GONE
+        binding.homePanel.visibility = View.VISIBLE
+        binding.urlBar.setText("")
+        refreshHome()
+        binding.homeSearch.requestFocus()
+    }
+
+    private fun hideHome() {
+        homeVisible = false
+        binding.homePanel.visibility = View.GONE
+    }
+
+    private fun showErrorPanel(failure: PageFailure) {
+        currentFailure = failure
+        homeVisible = false
+        cursor.setActive(false)
+        binding.homePanel.visibility = View.GONE
+        binding.errorPanel.visibility = View.VISIBLE
+        val titleRes = when (failure.kind) {
+            PageFailureKind.OFFLINE -> R.string.error_offline_title
+            PageFailureKind.DNS -> R.string.error_dns_title
+            PageFailureKind.TIMEOUT -> R.string.error_timeout_title
+            PageFailureKind.CONNECTION -> R.string.error_connection_title
+            PageFailureKind.HTTP -> R.string.error_http_title
+            PageFailureKind.SSL -> R.string.error_ssl_title
+            PageFailureKind.RENDERER_CRASH -> R.string.error_renderer_title
+        }
+        binding.errorTitle.setText(titleRes)
+        val detail = when {
+            failure.httpStatus != null -> "HTTP ${failure.httpStatus}: ${failure.detail}"
+            failure.detail.isNotBlank() -> failure.detail
+            else -> getString(titleRes)
+        }
+        binding.errorMessage.text = getString(R.string.error_message_with_url, detail, failure.url)
+        binding.errorRetry.requestFocus()
+    }
+
+    private fun hideErrorPanel() {
+        currentFailure = null
+        binding.errorPanel.visibility = View.GONE
+    }
+
+    private fun syncHomeVisibility(requestFocus: Boolean = false) {
+        val isHome = tabManager.activeUrl().isBlank() || tabManager.activeUrl() == HOME_URL
+        if (isHome) {
+            homeVisible = true
+            cursor.setActive(false)
+            binding.homePanel.visibility = View.VISIBLE
+            refreshHome()
+            if (requestFocus) binding.homeSearch.requestFocus()
+        } else {
+            hideHome()
+            if (requestFocus) focusAddressBar()
+        }
+    }
+
+    private fun refreshHome() {
+        binding.homeBookmarkGrid.removeAllViews()
+        binding.homeRecentGrid.removeAllViews()
+        store.bookmarks.take(HOME_TILE_LIMIT).forEach {
+            addHomeTile(binding.homeBookmarkGrid, HomeTile(it.title, it.url), true)
+        }
+        HomeContent.recent(store.history, HOME_TILE_LIMIT).forEach {
+            addHomeTile(binding.homeRecentGrid, it, false)
+        }
+        if (binding.homeBookmarkGrid.childCount == 0) addHomeEmpty(binding.homeBookmarkGrid)
+        if (binding.homeRecentGrid.childCount == 0) addHomeEmpty(binding.homeRecentGrid)
+    }
+
+    private fun addHomeTile(grid: GridLayout, tile: HomeTile, bookmark: Boolean) {
+        val host = runCatching { tile.url.toUri().host.orEmpty() }.getOrDefault("")
+        val button = Button(this).apply {
+            text = tile.title.take(34) + if (host.isNotBlank()) "\n$host" else ""
+            isAllCaps = false
+            gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
+            setPadding(dp(18), dp(8), dp(18), dp(8))
+            setTextColor(Color.WHITE)
+            textSize = 17f
+            maxLines = 2
+            setBackgroundResource(R.drawable.tv_tab_background)
+            contentDescription = (if (bookmark) "Bookmark: " else "Recent site: ") +
+                "${tile.title}, $host"
+            setOnClickListener {
+                hideHome()
+                engine.loadUrl(tile.url)
+                if (directNav) engine.view.requestFocus() else setCursor(true)
+            }
+        }
+        grid.addView(button, GridLayout.LayoutParams().apply {
+            width = dp(260)
+            height = dp(96)
+            setMargins(dp(6), dp(6), dp(6), dp(6))
+        })
+    }
+
+    private fun addHomeEmpty(grid: GridLayout) {
+        grid.addView(TextView(this).apply {
+            text = getString(R.string.home_empty)
+            setTextColor(0xB3FFFFFF.toInt())
+            textSize = 17f
+            setPadding(dp(8), dp(14), dp(8), dp(14))
+        })
+    }
+
     private fun navigateFromBar() {
-        val target = UrlUtils.toUrlOrSearch(binding.urlBar.text.toString(), searchTemplate)
+        val input = binding.urlBar.text.toString().trim()
+        if (input.isEmpty()) return
+        val target = UrlUtils.toUrlOrSearch(input, searchTemplate)
+        hideHome()
+        hideErrorPanel()
         engine.loadUrl(target)
         addressBarActive = false
         binding.urlBar.clearFocus()
@@ -343,7 +529,8 @@ class BrowserActivity : AppCompatActivity() {
         val bookmarked = url != null && store.isBookmarked(url)
         val actions = listOf(
             getString(R.string.settings_title) to ::showSettings,
-            getString(R.string.menu_home) to { engine.loadUrl(HOME_URL) },
+            getString(R.string.menu_tabs) to ::showTabSwitcher,
+            getString(R.string.menu_home) to ::showHome,
             getString(R.string.menu_bookmarks) to ::showBookmarks,
             getString(R.string.menu_history) to ::showHistory,
             getString(R.string.menu_downloads) to ::showDownloads,
@@ -366,12 +553,15 @@ class BrowserActivity : AppCompatActivity() {
     private fun openNewTab() {
         tabManager.newTab(HOME_URL)
         binding.urlBar.setText("")
-        focusAddressBar()
+        showHome()
     }
 
     private fun onTabsChanged() {
+        currentFailure?.takeIf { it.url != tabManager.activeUrl() }?.let { hideErrorPanel() }
         refreshTabStrip()
         persistTabs()
+        syncHomeVisibility()
+        if (binding.tabSwitcherOverlay.visibility == View.VISIBLE) rebuildTabSwitcher()
     }
 
     /** Rebuild the tab strip; shown only when more than one tab is open. */
@@ -383,8 +573,16 @@ class BrowserActivity : AppCompatActivity() {
         strip.removeAllViews()
         if (count <= 1) return
         val active = tabManager.activePosition()
-        tabManager.titles().forEachIndexed { tabIndex, title ->
+        val titles = tabManager.titles()
+        val displayedIndices = if (count <= MAX_COMPACT_TABS) {
+            titles.indices.toList()
+        } else {
+            ((0 until MAX_COMPACT_TABS - 2) + active + (count - 1)).distinct().sorted()
+        }
+        displayedIndices.forEach { tabIndex ->
+            val title = titles[tabIndex]
             val button = Button(this).apply {
+                tag = tabIndex
                 text = title.take(24)
                 isAllCaps = false
                 minWidth = resources.displayMetrics.density.times(120).toInt()
@@ -416,8 +614,118 @@ class BrowserActivity : AppCompatActivity() {
         focusedIndex?.coerceAtMost(strip.childCount - 1)?.let { strip.getChildAt(it).requestFocus() }
     }
 
+    private fun showTabSwitcher() {
+        hideSoftKeyboard()
+        cursor.setActive(false)
+        binding.tabSwitcherOverlay.visibility = View.VISIBLE
+        rebuildTabSwitcher()
+    }
+
+    private fun dismissTabSwitcher(focusMenu: Boolean = true) {
+        binding.tabSwitcherOverlay.visibility = View.GONE
+        binding.tabSwitcherList.removeAllViews()
+        if (focusMenu) binding.btnMenu.requestFocus()
+    }
+
+    private fun rebuildTabSwitcher() {
+        val list = binding.tabSwitcherList
+        list.removeAllViews()
+        val previews = tabManager.previews(TAB_THUMB_WIDTH, TAB_THUMB_HEIGHT)
+        val openButtons = mutableListOf<Button>()
+        val closeButtons = mutableListOf<Button?>()
+
+        previews.forEach { preview ->
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+                setBackgroundResource(R.drawable.tv_tab_background)
+            }
+            val image = ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(288), dp(162))
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                setBackgroundColor(0xFF20283A.toInt())
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                preview.thumbnail?.let(::setImageBitmap)
+            }
+            val title = TextView(this).apply {
+                text = preview.title.take(36)
+                setTextColor(Color.WHITE)
+                textSize = 18f
+                maxLines = 1
+                setPadding(0, dp(10), 0, dp(2))
+            }
+            val url = TextView(this).apply {
+                text = runCatching { preview.url.toUri().host }.getOrNull() ?: preview.url.take(38)
+                setTextColor(0xB3FFFFFF.toInt())
+                textSize = 14f
+                maxLines = 1
+            }
+            val open = Button(this).apply {
+                id = View.generateViewId()
+                text = if (preview.active) getString(R.string.tab_open) + " •" else getString(R.string.tab_open)
+                isAllCaps = false
+                contentDescription = getString(R.string.tab_description, preview.index + 1, previews.size, preview.title)
+                setOnClickListener {
+                    tabManager.select(preview.index)
+                    dismissTabSwitcher(focusMenu = false)
+                    syncHomeVisibility(requestFocus = true)
+                }
+            }
+            val close = Button(this).apply {
+                id = View.generateViewId()
+                text = getString(R.string.menu_close_tab)
+                isAllCaps = false
+                contentDescription = getString(R.string.menu_close_tab) + ": " + preview.title
+                setOnClickListener {
+                    tabManager.closeTab(preview.index)
+                    rebuildTabSwitcher()
+                }
+            }
+            card.addView(image)
+            card.addView(title)
+            card.addView(url)
+            card.addView(open, LinearLayout.LayoutParams(dp(288), dp(52)).apply { topMargin = dp(10) })
+            card.addView(close, LinearLayout.LayoutParams(dp(288), dp(52)).apply { topMargin = dp(6) })
+            list.addView(card, LinearLayout.LayoutParams(dp(308), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = dp(18)
+            })
+            openButtons += open
+            closeButtons += close
+        }
+
+        val newTab = Button(this).apply {
+            id = View.generateViewId()
+            text = "+\n" + getString(R.string.menu_new_tab)
+            isAllCaps = false
+            textSize = 20f
+            setBackgroundResource(R.drawable.tv_tab_background)
+            setOnClickListener {
+                openNewTab()
+                dismissTabSwitcher(focusMenu = false)
+            }
+        }
+        list.addView(newTab, LinearLayout.LayoutParams(dp(240), dp(220)))
+        openButtons += newTab
+        closeButtons += null
+
+        openButtons.forEachIndexed { index, button ->
+            button.nextFocusLeftId = openButtons[(index - 1).coerceAtLeast(0)].id
+            button.nextFocusRightId = openButtons[(index + 1).coerceAtMost(openButtons.lastIndex)].id
+            button.nextFocusDownId = closeButtons[index]?.id ?: button.id
+            button.nextFocusUpId = button.id
+            closeButtons[index]?.let { close ->
+                close.nextFocusUpId = button.id
+                close.nextFocusDownId = close.id
+                close.nextFocusLeftId = closeButtons.getOrNull(index - 1)?.id ?: close.id
+                close.nextFocusRightId = closeButtons.getOrNull(index + 1)?.id ?: close.id
+            }
+        }
+        openButtons.getOrNull(tabManager.activePosition())?.requestFocus()
+    }
+
     private fun toggleBookmark() {
         val url = engine.currentUrl() ?: return
+        if (url == HOME_URL) return
         if (store.isBookmarked(url)) {
             store.removeBookmark(url)
             toast(R.string.bookmark_removed)
@@ -425,6 +733,7 @@ class BrowserActivity : AppCompatActivity() {
             store.addBookmark(engine.currentTitle() ?: url, url)
             toast(R.string.bookmark_added)
         }
+        if (homeVisible) refreshHome()
     }
 
     private fun showBookmarks() {
@@ -680,6 +989,7 @@ class BrowserActivity : AppCompatActivity() {
         }
         // In fullscreen video, let the now-focused player view handle D-pad/OK natively.
         if (isFullscreen) return super.dispatchKeyEvent(event)
+        if (binding.tabSwitcherOverlay.visibility == View.VISIBLE) return super.dispatchKeyEvent(event)
         if (event.keyCode == KeyEvent.KEYCODE_SEARCH) {
             if (event.action == KeyEvent.ACTION_UP) launchVoiceSearch()
             return true
@@ -699,11 +1009,18 @@ class BrowserActivity : AppCompatActivity() {
                     if (binding.urlBar.hasFocus() && binding.urlBar.isPopupShowing) {
                         return super.dispatchKeyEvent(event)
                     }
-                    if (binding.tabStripScroll.visibility == View.VISIBLE && binding.tabStrip.childCount > 0) {
+                    if (homeVisible) {
+                        binding.homeSearch.requestFocus()
+                    } else if (binding.errorPanel.visibility == View.VISIBLE) {
+                        binding.errorRetry.requestFocus()
+                    } else if (binding.tabStripScroll.visibility == View.VISIBLE && binding.tabStrip.childCount > 0) {
                         addressBarActive = false
-                        binding.tabStrip.getChildAt(
-                            tabManager.activePosition().coerceIn(0, binding.tabStrip.childCount - 1)
-                        ).requestFocus()
+                        val activeTab = tabManager.activePosition()
+                        val child = (0 until binding.tabStrip.childCount)
+                            .map(binding.tabStrip::getChildAt)
+                            .firstOrNull { it.tag == activeTab }
+                            ?: binding.tabStrip.getChildAt(0)
+                        child.requestFocus()
                     } else if (directNav) {
                         addressBarActive = false
                         engine.view.requestFocus()
@@ -857,30 +1174,54 @@ class BrowserActivity : AppCompatActivity() {
                     return
                 }
                 when {
-                    isFullscreen -> exitFullscreen?.invoke()
+                    binding.tabSwitcherOverlay.visibility == View.VISIBLE -> {
+                        resetExitSequence(); dismissTabSwitcher()
+                    }
+                    isFullscreen -> {
+                        resetExitSequence(); exitFullscreen?.invoke()
+                    }
+                    binding.errorPanel.visibility == View.VISIBLE -> {
+                        resetExitSequence()
+                        hideErrorPanel()
+                        if (engine.canGoBack()) engine.goBack() else showHome()
+                    }
+                    homeVisible && binding.homePanel.hasFocus() -> {
+                        resetExitSequence(); binding.btnMenu.requestFocus()
+                    }
                     // In page-cursor mode, BACK first returns to the toolbar/address bar (reliable,
                     // single press — unlike long-press OK, which needs key auto-repeat some remotes
                     // don't emit). Press BACK again to actually go back in history.
-                    cursor.active -> setCursor(false)
+                    cursor.active -> {
+                        resetExitSequence(); setCursor(false)
+                    }
                     directNav && (engine.view.hasFocus() || binding.engineContainer.hasFocus()) ->
-                        focusAddressBar()
+                        run { resetExitSequence(); focusAddressBar() }
                     // BACK exits address entry into browser chrome; it must never terminate Comet.
                     addressBarActive || binding.urlBar.hasFocus() -> leaveAddressBar()
-                    engine.canGoBack() -> engine.goBack()
-                    tabManager.count > 1 -> tabManager.closeActive()
+                    engine.canGoBack() -> {
+                        resetExitSequence(); engine.goBack()
+                    }
+                    tabManager.count > 1 -> {
+                        resetExitSequence(); tabManager.closeActive()
+                    }
                     else -> {
-                        val now = SystemClock.uptimeMillis()
-                        if (now > exitSequenceDeadline) exitBackPressCount = 0
-                        exitSequenceDeadline = now + EXIT_SEQUENCE_TIMEOUT_MS
-                        exitBackPressCount++
-                        if (exitBackPressCount >= EXIT_BACK_PRESS_COUNT) {
-                            resetExitSequence()
-                            isEnabled = false
-                            onBackPressedDispatcher.onBackPressed()
-                        } else if (exitBackPressCount == 2) {
-                            toast(R.string.press_back_twice_to_exit)
-                        } else if (exitBackPressCount == 3) {
-                            toast(R.string.press_back_once_to_exit)
+                        val transition = exitPolicy.reduce(
+                            exitState,
+                            RemoteKey.BACK,
+                            SystemClock.uptimeMillis(),
+                            exitEligible = true
+                        )
+                        exitState = transition.state
+                        when (val effect = transition.effect) {
+                            RemoteExitPolicy.Effect.Exit -> {
+                                isEnabled = false
+                                onBackPressedDispatcher.onBackPressed()
+                            }
+                            is RemoteExitPolicy.Effect.Warn -> toast(
+                                if (effect.remainingBackPresses == 1) R.string.press_back_once_to_exit
+                                else R.string.press_back_twice_to_exit
+                            )
+                            else -> Unit
                         }
                     }
                 }
@@ -911,11 +1252,25 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     private fun resetExitSequence() {
-        exitBackPressCount = 0
-        exitSequenceDeadline = 0L
+        exitState = RemoteExitPolicy.State()
     }
 
     private val callbacks = object : EngineCallbacks {
+        override fun onPageStarted(url: String) {
+            hideErrorPanel()
+            if (url != HOME_URL) hideHome()
+        }
+
+        override fun onPageFailure(failure: PageFailure) {
+            showErrorPanel(failure)
+        }
+
+        override fun onRendererRecovered(url: String) {
+            if (isFullscreen) exitFullscreen?.invoke()
+            showErrorPanel(
+                PageFailure(PageFailureKind.RENDERER_CRASH, url, getString(R.string.error_renderer_title))
+            )
+        }
         override fun onNavigationStateChanged(canGoBack: Boolean, canGoForward: Boolean) {
             binding.btnBack.isEnabled = canGoBack
             binding.btnBack.isFocusable = canGoBack
@@ -1021,13 +1376,14 @@ class BrowserActivity : AppCompatActivity() {
         }
 
         override fun onSslError(handler: SslErrorHandler, error: SslError) {
-            AlertDialog.Builder(this@BrowserActivity)
-                .setTitle(R.string.ssl_title)
-                .setMessage(getString(R.string.ssl_message, error.url ?: ""))
-                .setPositiveButton(R.string.ssl_proceed) { _, _ -> handler.proceed() }
-                .setNegativeButton(R.string.action_cancel) { _, _ -> handler.cancel() }
-                .setOnCancelListener { handler.cancel() }
-                .show()
+            handler.cancel()
+            showErrorPanel(
+                PageFailure(
+                    PageFailureKind.SSL,
+                    error.url.orEmpty(),
+                    getString(R.string.ssl_message, error.url ?: "")
+                )
+            )
         }
 
         override fun onHttpAuthRequest(handler: HttpAuthHandler, host: String, realm: String?) {
@@ -1131,17 +1487,32 @@ class BrowserActivity : AppCompatActivity() {
         super.onPause()
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (::tabManager.isInitialized && level >= TRIM_MEMORY_RUNNING_LOW) {
+            tabManager.releaseInactiveEngines()
+            if (binding.tabSwitcherOverlay.visibility == View.VISIBLE) rebuildTabSwitcher()
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        if (::tabManager.isInitialized) tabManager.releaseInactiveEngines()
+    }
+
     override fun onDestroy() {
         if (::tabManager.isInitialized) tabManager.destroyAll()
         super.onDestroy()
     }
 
     companion object {
-        private const val HOME_URL = "https://www.google.com/"
+        private const val HOME_URL = "about:blank"
+        private const val HOME_TILE_LIMIT = 8
+        private const val MAX_COMPACT_TABS = 8
+        private const val TAB_THUMB_WIDTH = 288
+        private const val TAB_THUMB_HEIGHT = 162
         private const val AXIS_DEADZONE = 0.18f
         private const val BLOCK_TOAST_THROTTLE_MS = 2500L
-        private const val EXIT_BACK_PRESS_COUNT = 4
-        private const val EXIT_SEQUENCE_TIMEOUT_MS = 6000L
         private const val URL_BACK_FOCUS_DELAY_MS = 300L
         private const val BACK_CALLBACK_SUPPRESSION_MS = 600L
         private val REMOTE_DIRECTION_KEYS = setOf(

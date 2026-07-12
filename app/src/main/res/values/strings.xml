@@ -46,9 +46,7 @@
     <string name="permission_location">%s wants your location</string>
     <string name="permission_allow">Allow</string>
     <string name="permission_deny">Deny</string>
-    <string name="ssl_title">Security warning</string>
-    <string name="ssl_message">This site\'s certificate is not trusted (%s). Continue anyway?</string>
-    <string name="ssl_proceed">Continue</string>
+    <string name="ssl_message">This site\'s certificate is not trusted (%s). Comet stopped the connection.</string>
     <string name="auth_title">Sign in to %s</string>
     <string name="auth_user">Username</string>
     <string name="auth_pass">Password</string>
@@ -86,4 +84,20 @@
     <string name="tab_description">Tab %1$d of %2$d: %3$s</string>
     <string name="press_back_twice_to_exit">Press BACK 2 more times to exit Comet</string>
     <string name="press_back_once_to_exit">Press BACK once more to exit Comet</string>
+    <string name="home_welcome">Browse with Comet</string>
+    <string name="home_bookmarks">Bookmarks</string>
+    <string name="home_recent">Recently visited</string>
+    <string name="home_empty">Nothing here yet</string>
+    <string name="menu_tabs">Tabs</string>
+    <string name="tab_switcher_help">Left/Right: choose tab   •   Down: close   •   Back: return</string>
+    <string name="tab_open">Open tab</string>
+    <string name="error_retry">Retry</string>
+    <string name="error_offline_title">You’re offline</string>
+    <string name="error_dns_title">Site not found</string>
+    <string name="error_timeout_title">This site took too long</string>
+    <string name="error_connection_title">Couldn’t connect</string>
+    <string name="error_http_title">Page unavailable</string>
+    <string name="error_ssl_title">Connection not private</string>
+    <string name="error_renderer_title">This page stopped responding</string>
+    <string name="error_message_with_url">%1$s\n\n%2$s</string>
 </resources>
