@@ -1,10 +1,10 @@
 {
   "webview": {
-    "versionCode": 12,
-    "versionName": "1.1.0",
+    "versionCode": 13,
+    "versionName": "1.1.1",
     "apkUrl": "https://github.com/SamWylde/comet-tv/releases/latest/download/app-webview-universal-release.apk",
-    "sha256": "4bcb8cc3c0a7bb1b377bd7dc3d34e93488c6d63ee5a7d9a08b5f2ad06a413842",
-    "notes": "Adds per-site Mobile/TV and Desktop identity/viewport profiles; an About/Diagnostics support report; isolated private tabs; complete browsing-data deletion; one-time, size-limited blob downloads; and origin-scoped camera, microphone, protected-media, and location permissions with allow-once or session choices. Also improves UA Client Hint consistency, fullscreen video handling, and popup blocking.",
+    "sha256": "9ad86d356079cf4e701a9b79f5235b541b290532c6447bee60a1d782654ce276",
+    "notes": "Fixes 1.1.0 closing right after it opened. Includes everything from 1.1.0: per-site Mobile/TV and Desktop identity/viewport profiles, an About/Diagnostics support report, isolated private tabs, complete browsing-data deletion, one-time size-limited blob downloads, and origin-scoped camera, microphone, protected-media and location permissions.",
     "required": false
   }
 }
