@@ -163,8 +163,9 @@ class TabManager(
     private fun ensureEngine(tab: Tab): Pair<BrowserEngine, Boolean> {
         tab.engine?.let { return it to false }
         return create(wrap(tab)).also {
-            init(it)
+            // Store the engine before init: init may read activeEngine for this tab.
             tab.engine = it
+            init(it)
         } to true
     }
 
