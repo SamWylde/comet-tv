@@ -253,6 +253,27 @@
                         android:orientation="horizontal" />
 
                     <TextView
+                        android:id="@+id/home_continue_title"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="26dp"
+                        android:accessibilityHeading="true"
+                        android:text="@string/home_continue_watching"
+                        android:textColor="@android:color/white"
+                        android:textSize="22sp"
+                        android:textStyle="bold"
+                        android:visibility="gone" />
+
+                    <GridLayout
+                        android:id="@+id/home_continue_grid"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:columnCount="4"
+                        android:orientation="horizontal"
+                        android:visibility="gone" />
+
+                    <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="26dp"

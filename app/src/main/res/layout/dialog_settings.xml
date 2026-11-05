@@ -254,5 +254,26 @@
             android:layout_height="wrap_content"
             android:minHeight="56dp"
             android:max="4" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center_vertical"
+            android:minHeight="56dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/settings_remember_playback" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/switch_remember_playback"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minHeight="56dp" />
+        </LinearLayout>
     </LinearLayout>
 </ScrollView>

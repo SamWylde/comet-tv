@@ -35,6 +35,7 @@ class SettingsStore(context: Context) {
     val cursorSpeed: Flow<Int> = ds.data.map { it[KEY_CURSOR_SPEED] ?: DEFAULT_CURSOR_SPEED }
     val directNav: Flow<Boolean> = ds.data.map { it[KEY_DIRECT_NAV] ?: false }
     val firstRunHintShown: Flow<Boolean> = ds.data.map { it[KEY_HINT_SHOWN] ?: false }
+    val rememberPlayback: Flow<Boolean> = ds.data.map { it[KEY_REMEMBER_PLAYBACK] ?: true }
     val siteBrowsingSettings: Flow<Map<String, SiteBrowsingSettings>> = ds.data.map {
         SiteBrowsingSettingsJson.decode(it[KEY_SITE_BROWSING_SETTINGS])
     }
@@ -117,6 +118,9 @@ class SettingsStore(context: Context) {
     suspend fun setCursorSpeed(value: Int) = ds.edit { it[KEY_CURSOR_SPEED] = value }
     suspend fun setDirectNav(enabled: Boolean) = ds.edit { it[KEY_DIRECT_NAV] = enabled }
 
+    suspend fun rememberPlaybackNow(): Boolean = rememberPlayback.first()
+    suspend fun setRememberPlayback(enabled: Boolean) = ds.edit { it[KEY_REMEMBER_PLAYBACK] = enabled }
+
     suspend fun setSiteAllowlisted(host: String, allowlisted: Boolean) {
         ds.edit { prefs ->
             val current = (prefs[KEY_ALLOWLIST] ?: emptySet()).toMutableSet()
@@ -137,6 +141,8 @@ class SettingsStore(context: Context) {
         private val KEY_DIRECT_NAV = booleanPreferencesKey("direct_nav")
         private val KEY_HINT_SHOWN = booleanPreferencesKey("first_run_hint_shown")
         private val KEY_SITE_BROWSING_SETTINGS = stringPreferencesKey("site_browsing_settings_json")
+
+        private val KEY_REMEMBER_PLAYBACK = booleanPreferencesKey("remember_playback")
 
         const val DEFAULT_SEARCH = "https://www.google.com/search?q=%s"
         /** Cursor speed slider value 1..5 (3 = normal). */

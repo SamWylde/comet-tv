@@ -73,6 +73,8 @@ import com.tdarby.comet.engine.EngineCallbacks
 import com.tdarby.comet.engine.WebViewEngine
 import com.tdarby.comet.data.BrowserStore
 import com.tdarby.comet.data.TabsStore
+import com.tdarby.comet.data.PlaybackResumePolicy
+import com.tdarby.comet.data.PlaybackResumeStore
 import com.tdarby.comet.engine.MediaKeys
 import com.tdarby.comet.engine.PageFailure
 import com.tdarby.comet.engine.PageFailureKind
@@ -284,6 +286,9 @@ open class BrowserActivity : AppCompatActivity() {
     private var activeBrowsingSettings = SiteBrowsingPolicy.resolve(null, false)
     private var searchTemplate = SettingsStore.DEFAULT_SEARCH
     private var directNav = false
+    private var rememberPlayback = true
+    private var resumeStore: PlaybackResumeStore? = null
+    private var resumeController: PlaybackResumeController? = null
     private var cursorSpeedSetting = SettingsStore.DEFAULT_CURSOR_SPEED
     private var hintShownAlready = false
 
@@ -379,6 +384,27 @@ open class BrowserActivity : AppCompatActivity() {
             ui = callbacks,
             onChanged = ::onTabsChanged
         )
+
+        if (!isIncognito) {
+            val resume = PlaybackResumeStore(applicationContext)
+            resumeStore = resume
+            resumeController = PlaybackResumeController(
+                activity = this,
+                store = resume,
+                enabled = { rememberPlayback },
+                pageShown = {
+                    tabManager.hasTabs && !homeVisible && binding.errorPanel.visibility != View.VISIBLE
+                },
+                engine = { if (tabManager.hasTabs) engine else null }
+            )
+            lifecycleScope.launch {
+                withContext(Dispatchers.IO) {
+                    rememberPlayback = settings.rememberPlaybackNow()
+                    resume.load()
+                }
+                if (homeVisible) refreshHome()
+            }
+        }
 
         wireChrome()
         wireHome()
@@ -630,7 +656,12 @@ open class BrowserActivity : AppCompatActivity() {
     private var renderedHome: RenderedHome? = null
     private var homeLayoutPending = false
 
-    private data class RenderedHome(val bookmarks: List<HomeTile>, val recent: List<HomeTile>, val columns: Int)
+    private data class RenderedHome(
+        val bookmarks: List<HomeTile>,
+        val recent: List<HomeTile>,
+        val columns: Int,
+        val continueWatching: List<HomeTile> = emptyList()
+    )
 
     private fun syncHomeVisibility(requestFocus: Boolean = false) {
         val isHome = tabManager.activeUrl().isBlank() || tabManager.activeUrl() == HOME_URL
@@ -667,14 +698,27 @@ open class BrowserActivity : AppCompatActivity() {
         val columns = HomeContent.columns(gridWidth, dp(HOME_TILE_WIDTH_DP + 2 * HOME_TILE_MARGIN_DP))
         val bookmarkTiles = store.bookmarks.take(HOME_TILE_LIMIT).map { HomeTile(it.title, it.url) }
         val recentTiles = if (isIncognito) emptyList() else HomeContent.recent(store.history, HOME_TILE_LIMIT)
-        val next = RenderedHome(bookmarkTiles, recentTiles, columns)
+        val continueGrid = binding.homeContinueGrid
+        val continueTiles = if (isIncognito || !rememberPlayback) emptyList() else HomeContent.continueWatching(
+            resumeStore?.all().orEmpty(), HOME_CONTINUE_LIMIT
+        ) { minutes ->
+            if (minutes >= 60) getString(R.string.continue_time_left_hours, minutes / 60, minutes % 60)
+            else getString(R.string.continue_time_left, minutes)
+        }
+        val next = RenderedHome(bookmarkTiles, recentTiles, columns, continueTiles)
         if (next == renderedHome) return
         renderedHome = next
 
-        val focusedGrid = listOf(bookmarkGrid, recentGrid).firstOrNull { it.hasFocus() }
+        val focusedGrid = listOf(bookmarkGrid, continueGrid, recentGrid).firstOrNull { it.hasFocus() }
         val focusedIndex = focusedGrid?.let { grid -> (0 until grid.childCount).firstOrNull { grid.getChildAt(it).hasFocus() } }
         bookmarkGrid.removeAllViews()
         recentGrid.removeAllViews()
+        continueGrid.removeAllViews()
+        continueGrid.columnCount = columns
+        continueTiles.forEach { addHomeTile(continueGrid, it, false) }
+        val continueVisibility = if (continueTiles.isEmpty()) View.GONE else View.VISIBLE
+        continueGrid.visibility = continueVisibility
+        binding.homeContinueTitle.visibility = continueVisibility
         bookmarkGrid.columnCount = columns
         recentGrid.columnCount = columns
         bookmarkTiles.forEach { addHomeTile(bookmarkGrid, it, true) }
@@ -689,7 +733,8 @@ open class BrowserActivity : AppCompatActivity() {
     private fun addHomeTile(grid: GridLayout, tile: HomeTile, bookmark: Boolean) {
         val host = runCatching { tile.url.toUri().host.orEmpty() }.getOrDefault("")
         val button = Button(this).apply {
-            text = tile.title.take(34) + if (host.isNotBlank()) "\n$host" else ""
+            val secondLine = tile.subtitle ?: host
+            text = tile.title.take(34) + if (secondLine.isNotBlank()) "\n$secondLine" else ""
             isAllCaps = false
             gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
             setPadding(dp(18), dp(8), dp(18), dp(8))
@@ -697,8 +742,8 @@ open class BrowserActivity : AppCompatActivity() {
             textSize = 17f
             maxLines = 2
             setBackgroundResource(R.drawable.tv_tab_background)
-            contentDescription = (if (bookmark) "Bookmark: " else "Recent site: ") +
-                "${tile.title}, $host"
+            contentDescription = (if (bookmark) "Bookmark: " else if (tile.subtitle != null) "Continue watching: " else "Recent site: ") +
+                "${tile.title}, ${tile.subtitle ?: host}"
             setOnClickListener {
                 hideHome()
                 engine.loadUrl(tile.url)
@@ -877,6 +922,8 @@ open class BrowserActivity : AppCompatActivity() {
                 }
             }
         }
+        resumeStore?.clear()
+        resumeController?.reset()
         WebStorage.getInstance().deleteAllData()
         GeolocationPermissions.getInstance().clearAll()
         WebViewDatabase.getInstance(this).apply {
@@ -904,6 +951,7 @@ open class BrowserActivity : AppCompatActivity() {
         refreshTabStrip()
         persistTabs()
         syncHomeVisibility()
+        resumeController?.ensurePolling()
         if (binding.tabSwitcherOverlay.visibility == View.VISIBLE) rebuildTabSwitcher()
     }
 
@@ -1297,6 +1345,8 @@ open class BrowserActivity : AppCompatActivity() {
         dlg.switchBlockPopups.isChecked = AdBlocker.popupEnabled
         dlg.switchBlockRedirects.isChecked = AdBlocker.redirectBlockEnabled
         dlg.switchDirectNav.isChecked = directNav
+        dlg.switchRememberPlayback.isChecked = rememberPlayback
+        dlg.switchRememberPlayback.contentDescription = getString(R.string.settings_remember_playback)
         dlg.seekCursorSpeed.progress = (cursorSpeedSetting - 1).coerceIn(0, 4)
         dlg.switchDesktop.contentDescription = getString(R.string.settings_desktop)
         dlg.spinnerSearch.contentDescription = getString(R.string.settings_search)
@@ -1340,6 +1390,14 @@ open class BrowserActivity : AppCompatActivity() {
                 AdBlocker.popupEnabled = dlg.switchBlockPopups.isChecked
                 AdBlocker.redirectBlockEnabled = dlg.switchBlockRedirects.isChecked
                 directNav = dlg.switchDirectNav.isChecked
+                val newRemember = dlg.switchRememberPlayback.isChecked
+                if (!newRemember && rememberPlayback) {
+                    resumeStore?.clear()
+                    resumeController?.reset()
+                }
+                rememberPlayback = newRemember
+                if (newRemember) resumeController?.ensurePolling()
+                if (homeVisible) refreshHome()
                 cursorSpeedSetting = dlg.seekCursorSpeed.progress + 1
                 cursor.speedFactor = speedFactor(cursorSpeedSetting)
                 tabManager.forEachEngine {
@@ -1377,6 +1435,7 @@ open class BrowserActivity : AppCompatActivity() {
                     settings.setBlockPopups(AdBlocker.popupEnabled)
                     settings.setBlockRedirects(AdBlocker.redirectBlockEnabled)
                     settings.setDirectNav(directNav)
+                    settings.setRememberPlayback(newRemember)
                     settings.setCursorSpeed(cursorSpeedSetting)
                     if (host != null) settings.setSiteAllowlisted(host, allowChecked)
                     if (host != null) settings.setSiteBrowsingSettings(host, newSiteSettings)
@@ -1698,6 +1757,7 @@ open class BrowserActivity : AppCompatActivity() {
         override fun onPageStarted(url: String) {
             hideErrorPanel()
             if (url != HOME_URL) hideHome()
+            resumeController?.ensurePolling()
         }
 
         override fun onPageFailure(failure: PageFailure) {
@@ -1763,6 +1823,7 @@ open class BrowserActivity : AppCompatActivity() {
 
         override fun onPageFinished(url: String) {
             if (!isIncognito) store.recordVisit(engine.currentTitle() ?: url, url)
+            resumeController?.onPageFinished()
         }
 
         override fun onDownloadRequested(
@@ -1954,11 +2015,13 @@ open class BrowserActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (::tabManager.isInitialized) tabManager.onResume()
+        resumeController?.onResume()
     }
 
     override fun onPause() {
         if (::cursor.isInitialized) cursor.stopMove()
         persistTabs()
+        resumeController?.onPause()
         if (::tabManager.isInitialized) tabManager.onPause()
         super.onPause()
     }
@@ -2006,6 +2069,7 @@ open class BrowserActivity : AppCompatActivity() {
         // A configuration change recreates the Activity in the same process; wiping then would
         // end the private session mid-use.
         if (isIncognito && !isChangingConfigurations) clearBrowsingData()
+        resumeController?.destroy()
         if (::tabManager.isInitialized) tabManager.destroyAll()
         super.onDestroy()
     }
@@ -2020,6 +2084,7 @@ open class BrowserActivity : AppCompatActivity() {
         private const val KEY_PENDING_LINK = "pending_link"
         private const val HOME_URL = "about:blank"
         private const val HOME_TILE_LIMIT = 8
+        private const val HOME_CONTINUE_LIMIT = 4
         private const val HOME_TILE_WIDTH_DP = 260
         private const val HOME_TILE_MARGIN_DP = 6
         private const val MAX_COMPACT_TABS = 8
