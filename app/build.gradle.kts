@@ -19,8 +19,8 @@ android {
         applicationId = "com.tdarby.comet"
         minSdk = 28
         targetSdk = 36
-        versionCode = 13
-        versionName = "1.1.1"
+        versionCode = 14
+        versionName = "1.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -99,6 +99,18 @@ val copyLegacyUniversalApk = tasks.register<Copy>("copyLegacyUniversalApk") {
     rename("app-universal-release.apk", "app-webview-universal-release.apk")
 }
 tasks.matching { it.name == "assembleRelease" }.configureEach { finalizedBy(copyLegacyUniversalApk) }
+
+// Fail any release build early (before compiling) when there is no signing config, instead of
+// quietly producing an unsigned APK. Only a boolean is captured, so the configuration cache is fine.
+val requireReleaseSigning = tasks.register("requireReleaseSigning") {
+    val signingConfigured = keystoreProps.isNotEmpty()
+    doFirst {
+        if (!signingConfigured) {
+            throw GradleException("Release signing is not configured: keystore.properties is missing")
+        }
+    }
+}
+tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(requireReleaseSigning) }
 
 dependencies {
     // Pinned to the newest versions compatible with the current Android Gradle plugin (8.9). The

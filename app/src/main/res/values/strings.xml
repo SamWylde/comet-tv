@@ -104,6 +104,7 @@
     <string name="update_check_failed">Couldn\'t check for updates</string>
     <string name="update_downloading">Downloading update…</string>
     <string name="update_failed">Update download failed</string>
+    <string name="update_install_failed">Couldn\'t open the installer. Try again, or update Comet with the Downloader app (code 2453488).</string>
     <string name="startup_loading">Starting Comet…</string>
     <string name="tab_description">Tab %1$d of %2$d: %3$s</string>
     <string name="press_back_twice_to_exit">Press BACK 2 more times to exit Comet</string>

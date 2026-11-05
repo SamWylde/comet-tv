@@ -1158,7 +1158,8 @@ open class BrowserActivity : AppCompatActivity() {
                 toast(R.string.update_downloading)
                 lifecycleScope.launch {
                     val apk = checker.download(manifest)
-                    if (apk != null) checker.install(apk) else toast(R.string.update_failed)
+                    if (apk == null) toast(R.string.update_failed)
+                    else if (!checker.install(apk)) toast(R.string.update_install_failed)
                 }
             }
             .setNegativeButton(R.string.action_cancel, null)
