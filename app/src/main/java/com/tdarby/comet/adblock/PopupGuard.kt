@@ -14,6 +14,14 @@ object PopupGuard {
     fun shouldOpenNewTab(isUserGesture: Boolean, blockingEnabled: Boolean, targetUrl: String?): Boolean =
         !targetUrl.isNullOrBlank() && (isUserGesture || !blockingEnabled)
 
+    /** [JS] wrapped so it does nothing on pages whose host is (or is under) an allowlisted host. */
+    fun scriptSkippingHosts(allowlist: Set<String>): String {
+        val hosts = allowlist.filter { h -> h.isNotEmpty() && h.all { it.isLetterOrDigit() || it == '.' || it == '-' } }
+            .joinToString(",") { "\"$it\"" }
+        return "(function(){var a=[$hosts],h=location.hostname.toLowerCase();" +
+            "for(var i=0;i<a.length;i++){if(h===a[i]||h.endsWith('.'+a[i]))return;}$JS})();"
+    }
+
     /** Injected at page start when popup blocking is enabled. */
     const val JS: String = """
         (function() {
