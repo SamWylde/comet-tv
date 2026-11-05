@@ -2,13 +2,12 @@ package com.tdarby.comet.engine
 
 import android.webkit.WebViewClient
 
-enum class PageFailureKind { OFFLINE, DNS, TIMEOUT, CONNECTION, HTTP, SSL, RENDERER_CRASH }
+enum class PageFailureKind { OFFLINE, DNS, TIMEOUT, CONNECTION, SSL, RENDERER_CRASH }
 
 data class PageFailure(
     val kind: PageFailureKind,
     val url: String,
-    val detail: String = "",
-    val httpStatus: Int? = null
+    val detail: String = ""
 )
 
 object PageFailureClassifier {

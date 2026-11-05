@@ -607,16 +607,11 @@ open class BrowserActivity : AppCompatActivity() {
             PageFailureKind.DNS -> R.string.error_dns_title
             PageFailureKind.TIMEOUT -> R.string.error_timeout_title
             PageFailureKind.CONNECTION -> R.string.error_connection_title
-            PageFailureKind.HTTP -> R.string.error_http_title
             PageFailureKind.SSL -> R.string.error_ssl_title
             PageFailureKind.RENDERER_CRASH -> R.string.error_renderer_title
         }
         binding.errorTitle.setText(titleRes)
-        val detail = when {
-            failure.httpStatus != null -> "HTTP ${failure.httpStatus}: ${failure.detail}"
-            failure.detail.isNotBlank() -> failure.detail
-            else -> getString(titleRes)
-        }
+        val detail = failure.detail.ifBlank { getString(titleRes) }
         binding.errorMessage.text = getString(R.string.error_message_with_url, detail, failure.url)
         binding.errorRetry.requestFocus()
     }

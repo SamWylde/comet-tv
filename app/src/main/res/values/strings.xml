@@ -124,7 +124,6 @@
     <string name="error_dns_title">Site not found</string>
     <string name="error_timeout_title">This site took too long</string>
     <string name="error_connection_title">Couldn’t connect</string>
-    <string name="error_http_title">Page unavailable</string>
     <string name="error_ssl_title">Connection not private</string>
     <string name="error_renderer_title">This page stopped responding</string>
     <string name="error_message_with_url">%1$s\n\n%2$s</string>
