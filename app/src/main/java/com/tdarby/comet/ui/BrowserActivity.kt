@@ -653,9 +653,13 @@ open class BrowserActivity : AppCompatActivity() {
         if (gridWidth <= 0) {
             if (!homeLayoutPending) {
                 homeLayoutPending = true
+                // Rebuild after this layout pass, not inside it: tiles added from a layout callback
+                // leave the grids measured as empty, so the tiles are clipped out of view.
                 bookmarkGrid.doOnLayout {
-                    homeLayoutPending = false
-                    if (homeVisible) refreshHome()
+                    bookmarkGrid.post {
+                        homeLayoutPending = false
+                        if (homeVisible) refreshHome()
+                    }
                 }
             }
             return
