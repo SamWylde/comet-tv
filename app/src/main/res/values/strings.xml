@@ -127,4 +127,21 @@
     <string name="error_ssl_title">Connection not private</string>
     <string name="error_renderer_title">This page stopped responding</string>
     <string name="error_message_with_url">%1$s\n\n%2$s</string>
+
+    <!-- w4-bookmarks: organise, back up and restore bookmarks -->
+    <string name="bookmark_open">Open</string>
+    <string name="bookmark_rename">Rename</string>
+    <string name="bookmark_move_up">Move up</string>
+    <string name="bookmark_move_down">Move down</string>
+    <string name="bookmark_delete">Delete</string>
+    <string name="bookmarks_export">Export</string>
+    <string name="bookmarks_import">Import</string>
+    <string name="bookmarks_exported">Saved %1$d bookmarks to Downloads as %2$s</string>
+    <string name="bookmarks_export_failed">Couldn’t save the bookmarks file</string>
+    <string name="bookmarks_import_none">No Comet bookmark files found in Downloads</string>
+    <string name="bookmarks_import_failed">Couldn’t read that file</string>
+    <string name="bookmarks_import_invalid">That isn’t a Comet bookmarks file</string>
+    <string name="bookmarks_import_too_large">That file is too large (limit 1 MB)</string>
+    <string name="bookmarks_import_result">Added %1$d bookmarks, %2$d were already saved</string>
+    <string name="bookmarks_import_skipped">. %1$d skipped (invalid or over the 1,000 limit)</string>
 </resources>

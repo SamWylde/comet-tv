@@ -71,6 +71,7 @@ import com.tdarby.comet.databinding.DialogSettingsBinding
 import com.tdarby.comet.engine.BrowserEngine
 import com.tdarby.comet.engine.EngineCallbacks
 import com.tdarby.comet.engine.WebViewEngine
+import com.tdarby.comet.data.BookmarkTransfer
 import com.tdarby.comet.data.BrowserStore
 import com.tdarby.comet.data.TabsStore
 import com.tdarby.comet.engine.MediaKeys
@@ -464,7 +465,10 @@ open class BrowserActivity : AppCompatActivity() {
         binding.urlBar.setAdapter(suggestions)
         binding.urlBar.setOnItemClickListener { _, _, _, _ -> navigateFromBar() }
         fun refreshSuggestions() =
-            suggestions.setCandidates(store.history.map { it.url } + store.bookmarks.map { it.url })
+            suggestions.setCandidates(
+                store.bookmarks.map { SuggestionCandidate(it.url, it.title, true) } +
+                    store.history.map { SuggestionCandidate(it.url, it.title, false) }
+            )
         // Refresh on every keystroke (not just focus) — the bar is already focused at launch, so a
         // focus-only refresh would miss history added during the session.
         binding.urlBar.doOnTextChanged { _, _, _, _ -> refreshSuggestions() }
@@ -1100,15 +1104,154 @@ open class BrowserActivity : AppCompatActivity() {
 
     private fun showBookmarks() {
         val items = store.bookmarks.toList()
-        if (items.isEmpty()) {
+        if (items.isEmpty() && isIncognito) {
             toast(R.string.bookmarks_empty); return
         }
-        val labels = items.map { it.title }.toTypedArray()
+        val builder = AlertDialog.Builder(this).setTitle(R.string.menu_bookmarks)
+        if (items.isEmpty()) builder.setMessage(R.string.bookmarks_empty)
+        else builder.setItems(items.map { it.title }.toTypedArray()) { _, which -> showBookmarkActions(items[which].url) }
+        if (!isIncognito) {
+            builder.setNeutralButton(R.string.bookmarks_export) { _, _ -> exportBookmarks() }
+            builder.setPositiveButton(R.string.bookmarks_import) { _, _ -> startBookmarkImport() }
+        }
+        builder.setNegativeButton(R.string.action_close, null).show()
+    }
+
+    /** Open, rename, reorder or delete one bookmark. Moving keeps this dialog open so a bookmark can be moved several places. */
+    private fun showBookmarkActions(url: String) {
+        val index = store.bookmarks.indexOfFirst { it.url == url }
+        if (index < 0) { showBookmarks(); return }
+        val bookmark = store.bookmarks[index]
+        val actions = buildList<Pair<String, () -> Unit>> {
+            add(getString(R.string.bookmark_open) to { engine.loadUrl(url) })
+            add(getString(R.string.bookmark_rename) to { showRenameBookmark(bookmark) })
+            if (index > 0) add(getString(R.string.bookmark_move_up) to {
+                store.moveBookmark(url, -1); onBookmarksChanged(); showBookmarkActions(url)
+            })
+            if (index < store.bookmarks.lastIndex) add(getString(R.string.bookmark_move_down) to {
+                store.moveBookmark(url, 1); onBookmarksChanged(); showBookmarkActions(url)
+            })
+            add(getString(R.string.bookmark_delete) to {
+                store.removeBookmark(url); onBookmarksChanged(); toast(R.string.bookmark_removed); showBookmarks()
+            })
+        }
         AlertDialog.Builder(this)
-            .setTitle(R.string.menu_bookmarks)
-            .setItems(labels) { _, which -> engine.loadUrl(items[which].url) }
-            .setNegativeButton(R.string.action_close, null)
+            .setTitle(bookmark.title)
+            .setItems(actions.map { it.first }.toTypedArray()) { _, which -> actions[which].second() }
+            .setNegativeButton(R.string.action_back) { _, _ -> showBookmarks() }
+            .setOnCancelListener { showBookmarks() }
             .show()
+    }
+
+    private fun onBookmarksChanged() {
+        if (homeVisible) refreshHome()
+    }
+
+    private fun showRenameBookmark(bookmark: com.tdarby.comet.data.SiteItem) {
+        val input = EditText(this).apply {
+            setText(bookmark.title)
+            setSingleLine()
+            selectAll()
+        }
+        bindTvKeyboard(input)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 16, 48, 0)
+            addView(input)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.bookmark_rename)
+            .setView(box)
+            .setPositiveButton(R.string.action_apply) { _, _ ->
+                store.renameBookmark(bookmark.url, input.text.toString())
+                onBookmarksChanged()
+                showBookmarkActions(bookmark.url)
+            }
+            .setNegativeButton(R.string.action_cancel) { _, _ -> showBookmarkActions(bookmark.url) }
+            .setOnCancelListener { showBookmarkActions(bookmark.url) }
+            .show()
+    }
+
+    private val bookmarkImportLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            result.data?.data?.let { importBookmarksFrom(it) }
+        }
+
+    private fun longToast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
+
+    private fun exportBookmarks() {
+        if (isIncognito) return
+        val list = store.bookmarks.toList()
+        if (list.isEmpty()) { toast(R.string.bookmarks_empty); return }
+        val write = {
+            val name = BookmarkFiles.newFileName()
+            lifecycleScope.launch {
+                val ok = withContext(Dispatchers.IO) {
+                    BookmarkFiles.save(this@BrowserActivity, name, BookmarkTransfer.export(list, BookmarkFiles.isoDate()))
+                }
+                if (ok) longToast(getString(R.string.bookmarks_exported, list.size, name))
+                else toast(R.string.bookmarks_export_failed)
+            }
+            Unit
+        }
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            ensureOsPermissions(listOf(Manifest.permission.WRITE_EXTERNAL_STORAGE)) { granted ->
+                if (granted) write() else toast(R.string.download_failed_storage)
+            }
+        } else write()
+    }
+
+    /** Uses the system file picker when the TV has one; otherwise lists Comet exports found in Downloads. */
+    private fun startBookmarkImport() {
+        if (isIncognito) return
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+        try {
+            bookmarkImportLauncher.launch(intent)
+        } catch (_: android.content.ActivityNotFoundException) {
+            showBookmarkExportFiles()
+        }
+    }
+
+    private fun showBookmarkExportFiles() {
+        val list = {
+            lifecycleScope.launch {
+                val files = withContext(Dispatchers.IO) { BookmarkFiles.listExports(this@BrowserActivity) }
+                if (files.isEmpty()) { toast(R.string.bookmarks_import_none); return@launch }
+                AlertDialog.Builder(this@BrowserActivity)
+                    .setTitle(R.string.bookmarks_import)
+                    .setItems(files.map { it.name }.toTypedArray()) { _, which -> importBookmarksFrom(files[which].uri) }
+                    .setNegativeButton(R.string.action_cancel, null)
+                    .show()
+            }
+            Unit
+        }
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            ensureOsPermissions(listOf(Manifest.permission.READ_EXTERNAL_STORAGE)) { granted ->
+                if (granted) list() else toast(R.string.download_failed_storage)
+            }
+        } else list()
+    }
+
+    private fun importBookmarksFrom(uri: Uri) {
+        lifecycleScope.launch {
+            val read = withContext(Dispatchers.IO) { BookmarkFiles.read(this@BrowserActivity, uri) }
+            if (read == null) { toast(R.string.bookmarks_import_failed); return@launch }
+            when (val parsed = BookmarkTransfer.parse(read.text, read.byteLength)) {
+                is BookmarkTransfer.Parsed.Rejected -> toast(
+                    if (parsed.reason == BookmarkTransfer.Failure.TOO_LARGE) R.string.bookmarks_import_too_large
+                    else R.string.bookmarks_import_invalid
+                )
+                is BookmarkTransfer.Parsed.Ok -> {
+                    val merge = store.importBookmarks(parsed.items)
+                    onBookmarksChanged()
+                    val skipped = parsed.skipped + merge.overLimit
+                    longToast(
+                        getString(R.string.bookmarks_import_result, merge.added, merge.alreadySaved) +
+                            if (skipped > 0) getString(R.string.bookmarks_import_skipped, skipped) else ""
+                    )
+                }
+            }
+        }
     }
 
     private fun showHistory() {
