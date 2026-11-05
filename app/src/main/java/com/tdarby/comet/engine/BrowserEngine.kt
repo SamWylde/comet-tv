@@ -113,6 +113,12 @@ interface BrowserEngine {
     /** Route a remote media key into the page's media elements. */
     fun mediaAction(action: MediaAction) {}
 
+    /**
+     * Run [command] on the best player of the page (every frame it can reach) and report what the
+     * player is doing now and why a command did nothing. [result] runs on the main thread.
+     */
+    fun mediaCommand(command: MediaCommand, result: (MediaOutcome) -> Unit) = result(MediaOutcome.NO_VIDEO)
+
     /** Save a `blob:` download (which DownloadManager can't fetch) by reading it in-page. */
     fun fetchBlob(url: String) {}
 

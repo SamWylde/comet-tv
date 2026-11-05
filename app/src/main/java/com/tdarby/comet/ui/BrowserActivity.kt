@@ -309,6 +309,10 @@ open class BrowserActivity : AppCompatActivity() {
     private var hintShownAlready = false
 
     private var handoff: HandoffController? = null
+    private var videoRemoteControl = true
+    private lateinit var videoControls: VideoControlsOverlay
+
+
     private var isFullscreen = false
     private val updateController by lazy { UpdateController(this) { isFullscreen } }
     private val hiddenDownloads by lazy { HiddenDownloads(this) }
@@ -381,6 +385,7 @@ open class BrowserActivity : AppCompatActivity() {
             this@BrowserActivity.globalDirectNav = directNav
             this@BrowserActivity.hintShownAlready = firstRunHintShown
             this@BrowserActivity.siteBrowsingSettings = siteBrowsingSettings
+            this@BrowserActivity.videoRemoteControl = videoRemoteControl
             AdBlocker.networkEnabled = blockNetwork
             AdBlocker.cosmeticEnabled = blockCosmetic
             AdBlocker.popupEnabled = blockPopups
@@ -430,6 +435,17 @@ open class BrowserActivity : AppCompatActivity() {
                 if (homeVisible) refreshHome()
             }
         }
+
+        videoControls = VideoControlsOverlay(
+            container = binding.videoControlsContainer,
+            engine = { if (tabManager.hasTabs) tabManager.activeEngine else null },
+            isFullscreen = { isFullscreen },
+            exitFullscreen = { exitFullscreen?.invoke() },
+            restoreFocus = {
+                if (isFullscreen) fullscreenView?.requestFocus()
+                else if (tabManager.hasTabs) engine.view.requestFocus()
+            }
+        )
 
         wireChrome()
         wireHome()
@@ -843,6 +859,7 @@ open class BrowserActivity : AppCompatActivity() {
             add(getString(R.string.menu_close_tab) to { tabManager.closeActive() })
             if (normal) add(getString(R.string.menu_new_private_tab) to ::openPrivateTab)
             add(getString(R.string.menu_voice) to ::launchVoiceSearch)
+            add(getString(R.string.menu_video_controls) to { videoControls.show() })
             add(getString(R.string.menu_link_options) to ::showLinkOptionsAtCursor)
             add(getString(R.string.menu_drag_mode) to ::startDragMode)
             add(getString(R.string.menu_zoom_in) to { engine.zoomIn() })
@@ -1569,6 +1586,8 @@ open class BrowserActivity : AppCompatActivity() {
         dlg.switchDirectNav.isChecked = globalDirectNav
         dlg.switchRememberPlayback.isChecked = rememberPlayback
         dlg.switchRememberPlayback.contentDescription = getString(R.string.settings_remember_playback)
+        dlg.switchVideoRemote.isChecked = videoRemoteControl
+        dlg.switchVideoRemote.contentDescription = getString(R.string.settings_video_remote)
         dlg.seekCursorSpeed.progress = (cursorSpeedSetting - 1).coerceIn(0, 4)
         dlg.switchDesktop.contentDescription = getString(R.string.settings_desktop)
         dlg.spinnerSearch.contentDescription = getString(R.string.settings_search)
@@ -1603,6 +1622,7 @@ open class BrowserActivity : AppCompatActivity() {
                 rememberPlayback = newRemember
                 if (newRemember) resumeController?.ensurePolling()
                 if (homeVisible) refreshHome()
+                videoRemoteControl = dlg.switchVideoRemote.isChecked
                 cursorSpeedSetting = dlg.seekCursorSpeed.progress + 1
                 cursor.speedFactor = speedFactor(cursorSpeedSetting)
                 tabManager.forEachEngine {
@@ -1619,6 +1639,7 @@ open class BrowserActivity : AppCompatActivity() {
                     settings.setBlockRedirects(AdBlocker.redirectBlockEnabled)
                     settings.setDirectNav(globalDirectNav)
                     settings.setRememberPlayback(newRemember)
+                    settings.setVideoRemoteControl(videoRemoteControl)
                     settings.setCursorSpeed(cursorSpeedSetting)
                 }
 
@@ -1761,6 +1782,9 @@ open class BrowserActivity : AppCompatActivity() {
             }
             return true
         }
+        // The video controls take the D-pad while they show, and in fullscreen video when the
+        // user left "Remote controls video" on; otherwise the player view handles keys itself.
+        if (videoControls.handleKey(event, isFullscreen && videoRemoteControl)) return true
         // In fullscreen video, let the now-focused player view handle D-pad/OK natively.
         if (isFullscreen) return super.dispatchKeyEvent(event)
         if (binding.tabSwitcherOverlay.visibility == View.VISIBLE) return super.dispatchKeyEvent(event)
@@ -1965,6 +1989,7 @@ open class BrowserActivity : AppCompatActivity() {
             RemoteAction.LINK_OPTIONS -> showLinkOptionsAtCursor()
             RemoteAction.DRAG_MODE -> startDragMode()
             RemoteAction.REOPEN_CLOSED_TAB -> if (!isIncognito && tabManager.hasClosedTab()) tabManager.reopenClosedTab()
+            RemoteAction.VIDEO_CONTROLS -> videoControls.show()
         }
     }
 
@@ -2111,6 +2136,9 @@ open class BrowserActivity : AppCompatActivity() {
                 }
                 when {
                     cursor.inDragMode -> { resetExitSequence(); cursor.cancelDrag() }
+                    ::videoControls.isInitialized && videoControls.isVisible -> {
+                        resetExitSequence(); videoControls.hide()
+                    }
                     binding.tabSwitcherOverlay.visibility == View.VISIBLE -> {
                         resetExitSequence(); dismissTabSwitcher()
                     }
@@ -2385,6 +2413,7 @@ open class BrowserActivity : AppCompatActivity() {
         override fun onEnterFullscreen(fullscreenView: View, onExit: () -> Unit) {
             cursor.stopMove()
             cursor.cancelDrag()
+            if (::videoControls.isInitialized) videoControls.hide()
             isFullscreen = true
             exitFullscreen = onExit
             // Providers normally hand us a detached view, but some keep it attached. Always move
@@ -2421,6 +2450,7 @@ open class BrowserActivity : AppCompatActivity() {
         @Suppress("DEPRECATION") // Clear the compatibility flag added on entry.
         override fun onExitFullscreen() {
             isFullscreen = false
+            if (::videoControls.isInitialized) videoControls.hide()
             exitFullscreen = null
             if (!isIncognito) binding.root.post { updateController.onFullscreenEnded() }
             val view = fullscreenView
@@ -2474,6 +2504,7 @@ open class BrowserActivity : AppCompatActivity() {
         if (::cursor.isInitialized) { cursor.stopMove(); cursor.cancelDrag() }
         persistTabs()
         resumeController?.onPause()
+        if (::videoControls.isInitialized) videoControls.hide()
         if (::tabManager.isInitialized) tabManager.onPause()
         super.onPause()
     }
@@ -2539,6 +2570,7 @@ open class BrowserActivity : AppCompatActivity() {
         // end the private session mid-use.
         if (isIncognito && !isChangingConfigurations) clearBrowsingData()
         resumeController?.destroy()
+        if (::videoControls.isInitialized) videoControls.release()
         if (::tabManager.isInitialized) tabManager.destroyAll()
         super.onDestroy()
     }

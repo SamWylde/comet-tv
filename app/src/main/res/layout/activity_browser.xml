@@ -442,4 +442,11 @@
             android:textColor="@android:color/white"
             android:textSize="20sp" />
     </LinearLayout>
+
+    <!-- Video controls panel: sits above the fullscreen video (w1-video) -->
+    <FrameLayout
+        android:id="@+id/video_controls_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
 </FrameLayout>

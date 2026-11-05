@@ -81,16 +81,29 @@ For the currently tracked BuffSports page, use the same command with:
 
 ## Video and fullscreen soak
 
+The soak checks the video as well as the activity. The test reads the page's media element
+through JavaScript and, at the start and at the end of the soak, requires it to be playing with
+`currentTime` advancing by at least 2 seconds over 5 seconds and no error on the element. During
+the soak it also checks, on every probe, that the element is still there and has no error. A
+fullscreen view that stays up over a frozen or failed video fails the test.
+
+The probe reads the top page and its same-origin frames, so the fixture must have its player in
+the page, not in a frame from another site. The fixture must also keep playing for the whole soak
+(a longer or looping video): a video that ends fails the end check. With "Remote controls video in
+fullscreen" on (the default), OK in fullscreen pauses the video and Left/Right skip, so keep that in
+mind when writing `videoStartKeys`, and send no key during the soak.
+
 `videoStartKeys` is a comma-separated remote macro applied after load. Supported names are `UP`,
 `DOWN`, `LEFT`, `RIGHT`, `ENTER`, `CENTER`, and `BACK`. Tailor the macro to the chosen stable test
 page. When `requireFullscreen=true`, the test waits up to 60 seconds for WebView custom fullscreen
-and then asserts that it remains active throughout the soak.
+and then asserts that it remains active throughout the soak. The test is named
+`videoFullscreenSoak_activityFullscreenAndPlaybackRemainStable`; use that name in `-e class`.
 
 ```powershell
 adb logcat -c
 adb shell am instrument -w `
   -e physicalTv true `
-  -e class com.tdarby.comet.reliability.PhysicalTvReliabilityTest#videoFullscreenSoak_activityAndFullscreenRemainStable `
+  -e class com.tdarby.comet.reliability.PhysicalTvReliabilityTest#videoFullscreenSoak_activityFullscreenAndPlaybackRemainStable `
   -e videoUrl "https://example.test/video-fixture" `
   -e videoStartKeys "BACK,DOWN,ENTER" `
   -e soakMinutes 120 `

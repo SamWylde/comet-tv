@@ -30,7 +30,8 @@ enum class RemoteAction(val id: String, val labelRes: Int) {
     SEND_FROM_PHONE("send_from_phone", R.string.menu_send_from_phone),
     LINK_OPTIONS("link_options", R.string.menu_link_options),
     DRAG_MODE("drag_mode", R.string.menu_drag_mode),
-    REOPEN_CLOSED_TAB("reopen_closed_tab", R.string.menu_reopen_closed_tab);
+    REOPEN_CLOSED_TAB("reopen_closed_tab", R.string.menu_reopen_closed_tab),
+    VIDEO_CONTROLS("video_controls", R.string.menu_video_controls);
 
     companion object {
         fun fromId(id: String): RemoteAction? = entries.firstOrNull { it.id == id }

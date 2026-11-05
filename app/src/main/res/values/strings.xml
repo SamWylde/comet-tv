@@ -257,4 +257,21 @@
 
 %1$s</string>
     <string name="handoff_open_new_tab">Open in new tab</string>
+
+    <!-- w1-video: video controls -->
+    <string name="settings_video_remote">Use the remote to control fullscreen video</string>
+    <string name="menu_video_controls">Video controls</string>
+    <string name="video_play">Play</string>
+    <string name="video_pause">Pause</string>
+    <string name="video_back_10">Back 10 s</string>
+    <string name="video_forward_10">Forward 10 s</string>
+    <string name="video_speed">Speed %1$s</string>
+    <string name="video_exit_fullscreen">Exit fullscreen</string>
+    <string name="video_live">Live</string>
+    <string name="video_no_video">No video on this page</string>
+    <string name="video_cannot_seek">This video can\'t be skipped</string>
+    <string name="video_cannot_change_speed">Speed can\'t be changed for this video</string>
+    <string name="video_play_blocked">The video didn’t start. Try the site’s own play button.</string>
+    <string name="video_failed">The video didn’t respond</string>
+    <string name="video_controls_description">Video controls</string>
 </resources>
