@@ -44,6 +44,7 @@ class WebViewEngine(
     private var popupScript: ScriptHandler? = null
     private val blobRequestLock = Any()
     private var pendingBlobRequest: PendingBlobRequest? = null
+    private var appliedBrowsingMode: Triple<Boolean, Boolean, Boolean>? = null
     @Volatile private var destroyed = false
     private val defaultUserAgent = webView.settings.userAgentString
     private val supportsUserAgentMetadata =
@@ -83,36 +84,38 @@ class WebViewEngine(
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
         webView.webViewClient = BrowserWebViewClient(callbacks)
         webView.webChromeClient = BrowserWebChromeClient(callbacks)
-        webView.setDownloadListener { url, userAgent, _, mimeType, _ ->
-            callbacks.onDownloadRequested(url, userAgent, mimeType)
+        webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+            callbacks.onDownloadRequested(url, userAgent, contentDisposition, mimeType)
         }
+        // Installed once, before any page loads: interfaces added later only reach later loads.
+        webView.addJavascriptInterface(BlobBridge(), BLOB_BRIDGE_NAME)
         webView.isFocusable = true
         webView.isFocusableInTouchMode = true
     }
 
-    private inner class PendingBlobRequest(
-        val interfaceName: String,
-        val token: String,
-        val sourceUrl: String
-    ) {
-        val bridge = BlobBridge(this)
-        val timeout = Runnable { failBlob(this) }
+    private inner class PendingBlobRequest(val token: String, val sourceUrl: String) {
+        val timeout = Runnable { failBlob(token) }
     }
 
-    /** Single-request JS bridge used by [fetchBlob], never installed for the WebView lifetime. */
-    private inner class BlobBridge(private val request: PendingBlobRequest) {
+    /**
+     * The one blob JS bridge, installed in [configure] before any page loads (the WebView only
+     * exposes interfaces to pages loaded after registration). Calls act on the current pending
+     * request only when the token matches the one handed to the injected script.
+     */
+    private inner class BlobBridge {
         @JavascriptInterface
         fun complete(token: String, dataUrl: String, mime: String?) {
-            val consumed = takeBlobRequest(request, token) ?: return
-            removeBlobBridge(consumed)
-            val payload = BlobDownloadPolicy.validate(dataUrl) ?: return
+            val consumed = takeBlobRequest(token) ?: return
+            val payload = BlobDownloadPolicy.validate(dataUrl)
+            if (payload == null) {
+                notifyDownloadResult(R.string.download_failed)
+                return
+            }
             saveBlob(dataUrl, payload, mime, consumed.sourceUrl)
         }
 
         @JavascriptInterface
-        fun fail(token: String) {
-            if (token == request.token) failBlob(request)
-        }
+        fun fail(token: String) = failBlob(token)
     }
 
     override fun fetchBlob(url: String) {
@@ -126,20 +129,17 @@ class WebViewEngine(
     private fun beginBlobRequest(url: String) {
         if (destroyed) return
         cancelBlobRequest()
-        val request = PendingBlobRequest(
-            interfaceName = "CometBlob_${UUID.randomUUID().toString().replace("-", "")}",
-            token = UUID.randomUUID().toString(),
-            sourceUrl = url
-        )
+        val request = PendingBlobRequest(token = UUID.randomUUID().toString(), sourceUrl = url)
         synchronized(blobRequestLock) { pendingBlobRequest = request }
-        webView.addJavascriptInterface(request.bridge, request.interfaceName)
         mainHandler.postDelayed(request.timeout, BLOB_REQUEST_TIMEOUT_MS)
 
         // Embed the URL as a safely-escaped JS string literal (prevents script injection via the URL).
         val u = org.json.JSONObject.quote(url)
-        val name = org.json.JSONObject.quote(request.interfaceName)
+        val name = org.json.JSONObject.quote(BLOB_BRIDGE_NAME)
         val token = org.json.JSONObject.quote(request.token)
+        // Evaluates to false when the bridge is missing, so the request fails right away.
         val js = "(function(n,t,u,limit){var b=window[n],done=false;" +
+            "if(!b||typeof b.complete!=='function'||typeof b.fail!=='function')return false;" +
             "function fail(){if(done)return;done=true;try{b.fail(t);}catch(_){}}" +
             "try{var x=new XMLHttpRequest();x.open('GET',u,true);x.responseType='blob';" +
             "x.onerror=x.onabort=x.ontimeout=fail;x.onload=function(){" +
@@ -147,34 +147,34 @@ class WebViewEngine(
             "var r=new FileReader();r.onerror=r.onabort=fail;r.onload=function(){" +
             "if(done||typeof r.result!=='string'){fail();return;}done=true;" +
             "try{b.complete(t,r.result,x.getResponseHeader('content-type')||'');}catch(_){}};" +
-            "r.readAsDataURL(x.response);};x.send();}catch(_){fail();}})" +
+            "r.readAsDataURL(x.response);};x.send();}catch(_){fail();}return true;})" +
             "($name,$token,$u,${BlobDownloadPolicy.MAX_DECODED_BYTES});"
-        webView.evaluateJavascript(js, null)
+        webView.evaluateJavascript(js) { result -> if (result == "false") failBlob(request.token) }
     }
 
-    private fun takeBlobRequest(request: PendingBlobRequest, token: String): PendingBlobRequest? =
-        synchronized(blobRequestLock) {
-            if (destroyed || pendingBlobRequest !== request || token != request.token) return@synchronized null
-            pendingBlobRequest = null
-            request
-        }
+    /** Claims the pending request when [token] matches it, so each request ends exactly once. */
+    private fun takeBlobRequest(token: String): PendingBlobRequest? {
+        val request = synchronized(blobRequestLock) {
+            if (destroyed || pendingBlobRequest?.token != token) return@synchronized null
+            pendingBlobRequest.also { pendingBlobRequest = null }
+        } ?: return null
+        mainHandler.removeCallbacks(request.timeout)
+        return request
+    }
 
-    private fun failBlob(request: PendingBlobRequest) {
-        val consumed = takeBlobRequest(request, request.token) ?: return
-        removeBlobBridge(consumed)
+    private fun failBlob(token: String) {
+        if (takeBlobRequest(token) != null) notifyDownloadResult(R.string.download_failed)
     }
 
     private fun cancelBlobRequest() {
         val request = synchronized(blobRequestLock) {
             pendingBlobRequest.also { pendingBlobRequest = null }
         } ?: return
-        removeBlobBridge(request)
+        mainHandler.removeCallbacks(request.timeout)
     }
 
-    private fun removeBlobBridge(request: PendingBlobRequest) {
-        mainHandler.removeCallbacks(request.timeout)
-        val remove = Runnable { if (!destroyed) webView.removeJavascriptInterface(request.interfaceName) }
-        if (Looper.myLooper() == Looper.getMainLooper()) remove.run() else mainHandler.post(remove)
+    private fun notifyDownloadResult(messageRes: Int) {
+        mainHandler.post { Toast.makeText(ctx, messageRes, Toast.LENGTH_SHORT).show() }
     }
 
     override fun captureThumbnail(width: Int, height: Int): Bitmap? {
@@ -188,40 +188,52 @@ class WebViewEngine(
         }.getOrNull()
     }
 
-    // @Suppress("Recycle"): the stream is closed via out.use {} below; lint can't track it across `?: return`.
-    @Suppress("Recycle")
     private fun saveBlob(
         dataUrl: String,
         payload: BlobDownloadPolicy.ValidatedPayload,
         mime: String?,
         srcUrl: String
     ) {
-        runCatching {
-            val bytes = Base64.decode(dataUrl.substring(payload.base64Start), Base64.DEFAULT)
-            if (bytes.size != payload.decodedBytes) return
-            val name = URLUtil.guessFileName(srcUrl, null, mime?.ifBlank { null })
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val values = ContentValues().apply {
-                    put(MediaStore.Downloads.DISPLAY_NAME, name)
-                    if (!mime.isNullOrBlank()) put(MediaStore.Downloads.MIME_TYPE, mime)
-                    put(MediaStore.Downloads.IS_PENDING, 1)
-                }
-                val resolver = ctx.contentResolver
-                val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return
-                val out = resolver.openOutputStream(uri) ?: return
+        val saved = runCatching { writeBlob(dataUrl, payload, mime, srcUrl) }.getOrDefault(false)
+        notifyDownloadResult(if (saved) R.string.download_started else R.string.download_failed)
+    }
+
+    // @Suppress("Recycle"): the stream is closed via out.use {} below; lint can't track it.
+    @Suppress("Recycle")
+    private fun writeBlob(
+        dataUrl: String,
+        payload: BlobDownloadPolicy.ValidatedPayload,
+        mime: String?,
+        srcUrl: String
+    ): Boolean {
+        val bytes = Base64.decode(dataUrl.substring(payload.base64Start), Base64.DEFAULT)
+        if (bytes.size != payload.decodedBytes) return false
+        val name = URLUtil.guessFileName(srcUrl, null, mime?.ifBlank { null })
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, name)
+                if (!mime.isNullOrBlank()) put(MediaStore.Downloads.MIME_TYPE, mime)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val resolver = ctx.contentResolver
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return false
+            try {
+                val out = resolver.openOutputStream(uri) ?: error("No output stream for $uri")
                 out.use { it.write(bytes) }
                 values.clear(); values.put(MediaStore.Downloads.IS_PENDING, 0)
                 resolver.update(uri, values, null, null)
-            } else {
-                @Suppress("DEPRECATION")
-                val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                dir.mkdirs()
-                File(dir, name).outputStream().use { it.write(bytes) }
+            } catch (e: Throwable) {
+                // Don't leave a pending, half-written row in the user's Downloads.
+                runCatching { resolver.delete(uri, null, null) }
+                throw e
             }
-            Handler(Looper.getMainLooper()).post {
-                Toast.makeText(ctx, R.string.download_started, Toast.LENGTH_SHORT).show()
-            }
+        } else {
+            @Suppress("DEPRECATION")
+            val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            dir.mkdirs()
+            File(dir, name).outputStream().use { it.write(bytes) }
         }
+        return true
     }
 
     override fun loadUrl(url: String) {
@@ -284,6 +296,11 @@ class WebViewEngine(
         useWideViewPort: Boolean,
         loadWithOverviewMode: Boolean
     ) {
+        // Unchanged values must not rewrite settings or reload the page (settings Apply and tab
+        // switches call this for every engine). The first call on a new engine always applies.
+        val mode = Triple(desktopIdentity, useWideViewPort, loadWithOverviewMode)
+        if (mode == appliedBrowsingMode) return
+        appliedBrowsingMode = mode
         webView.settings.userAgentString = UserAgentPolicy.userAgent(defaultUserAgent, desktopIdentity)
         if (supportsUserAgentMetadata) {
             val override = UserAgentPolicy.metadataOverride(defaultUserAgent, desktopIdentity)
@@ -365,5 +382,6 @@ class WebViewEngine(
 
     companion object {
         private const val BLOB_REQUEST_TIMEOUT_MS = 2 * 60 * 1000L
+        private const val BLOB_BRIDGE_NAME = "CometBlob"
     }
 }

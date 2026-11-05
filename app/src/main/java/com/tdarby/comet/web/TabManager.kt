@@ -22,7 +22,7 @@ import com.tdarby.comet.data.TabSessionPolicy
  * container — on top across tab switches.
  *
  * @param create makes an engine of the current type for a given callback (Activity supplies this).
- * @param init applies per-engine settings (desktop mode, blocking) right after creation.
+ * @param init applies per-engine settings (site profile for the tab URL, blocking) right after creation.
  * @param ui receives events from the *active* tab only.
  * @param onChanged fired when the tab list/active tab/titles change (refresh the tab strip).
  */
@@ -30,7 +30,7 @@ class TabManager(
     private val container: FrameLayout,
     private val homeUrl: String,
     private val create: (EngineCallbacks) -> BrowserEngine,
-    private val init: (BrowserEngine) -> Unit,
+    private val init: (BrowserEngine, String) -> Unit,
     private val ui: EngineCallbacks,
     private val onChanged: () -> Unit
 ) {
@@ -165,7 +165,7 @@ class TabManager(
         return create(wrap(tab)).also {
             // Store the engine before init: init may read activeEngine for this tab.
             tab.engine = it
-            init(it)
+            init(it, tab.url)
         } to true
     }
 
@@ -242,8 +242,13 @@ class TabManager(
             if (isActive(tab)) ui.onOpenInNewTab(url)
         }
 
-        override fun onDownloadRequested(url: String, userAgent: String?, mimeType: String?) {
-            if (isActive(tab)) ui.onDownloadRequested(url, userAgent, mimeType)
+        override fun onDownloadRequested(
+            url: String,
+            userAgent: String?,
+            contentDisposition: String?,
+            mimeType: String?
+        ) {
+            if (isActive(tab)) ui.onDownloadRequested(url, userAgent, contentDisposition, mimeType)
         }
 
         override fun onShowFileChooser(
