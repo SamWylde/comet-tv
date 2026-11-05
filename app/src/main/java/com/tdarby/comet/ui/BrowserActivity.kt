@@ -298,6 +298,7 @@ open class BrowserActivity : AppCompatActivity() {
     private val exitPolicy = RemoteExitPolicy()
     private var exitState = RemoteExitPolicy.State()
     private var pendingIntentUrl: String? = null
+    private var recreatedActivity = false
     private var addressBarActive = false
     private var suppressBackCallbackUntil = 0L
     private var homeVisible = false
@@ -313,6 +314,7 @@ open class BrowserActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        recreatedActivity = savedInstanceState != null
         binding = ActivityBrowserBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -405,12 +407,13 @@ open class BrowserActivity : AppCompatActivity() {
 
     /** Open a link passed via VIEW intent, else restore the saved session, else a home tab. */
     private fun openInitialTabs(savedTabs: List<TabManager.TabSnapshot>, activeTab: Int) {
-        val intentUrl = pendingIntentUrl ?: intentUrl(intent)
+        val intentUrl = pendingIntentUrl ?: if (recreatedActivity) null else intentUrl(intent)
         pendingIntentUrl = null
-        when {
-            intentUrl != null -> tabManager.newTab(intentUrl)
-            else -> tabManager.restore(savedTabs, activeTab) // empty -> home tab
+        consumeIntentLink()
+        if (savedTabs.isNotEmpty() || intentUrl == null) {
+            tabManager.restore(savedTabs, activeTab) // empty -> home tab
         }
+        if (intentUrl != null) tabManager.newTab(intentUrl)
     }
 
     /** Extract an http(s) URL from a VIEW intent (opening links from other apps). */
@@ -420,11 +423,23 @@ open class BrowserActivity : AppCompatActivity() {
         return data.takeIf { it.startsWith("http://") || it.startsWith("https://") }
     }
 
+    /** Drop the link from the Activity's intent so it opens once, not again on recreation. */
+    private fun consumeIntentLink() {
+        setIntent(Intent(intent).apply { data = null })
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        intentUrl(intent)?.let {
-            if (::tabManager.isInitialized) tabManager.newTab(it) else pendingIntentUrl = it
+        val url = intentUrl(intent)
+        consumeIntentLink()
+        url?.let {
+            if (::tabManager.isInitialized) {
+                if (isFullscreen) exitFullscreen?.invoke()
+                tabManager.newTab(it)
+            } else {
+                pendingIntentUrl = it
+            }
         }
     }
 
@@ -1030,7 +1045,7 @@ open class BrowserActivity : AppCompatActivity() {
     }
 
     private fun showBookmarks() {
-        val items = store.bookmarks
+        val items = store.bookmarks.toList()
         if (items.isEmpty()) {
             toast(R.string.bookmarks_empty); return
         }
@@ -1043,7 +1058,7 @@ open class BrowserActivity : AppCompatActivity() {
     }
 
     private fun showHistory() {
-        val items = store.history
+        val items = store.history.toList()
         if (items.isEmpty()) {
             toast(R.string.history_empty); return
         }

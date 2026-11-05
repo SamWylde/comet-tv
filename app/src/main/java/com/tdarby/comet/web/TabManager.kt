@@ -42,6 +42,7 @@ class TabManager(
 
     private val tabs = mutableListOf<Tab>()
     private var activeIndex = -1
+    private var fullscreenOwner: Tab? = null
 
     val count: Int get() = tabs.size
     val activeEngine: BrowserEngine get() = requireNotNull(tabs[activeIndex].engine)
@@ -223,11 +224,19 @@ class TabManager(
         }
 
         override fun onEnterFullscreen(fullscreenView: android.view.View, onExit: () -> Unit) {
-            if (isActive(tab)) ui.onEnterFullscreen(fullscreenView, onExit) else onExit()
+            if (isActive(tab)) {
+                fullscreenOwner = tab
+                ui.onEnterFullscreen(fullscreenView, onExit)
+            } else {
+                onExit()
+            }
         }
 
         override fun onExitFullscreen() {
-            if (isActive(tab)) ui.onExitFullscreen()
+            if (fullscreenOwner === tab) {
+                fullscreenOwner = null
+                ui.onExitFullscreen()
+            }
         }
 
         override fun onPopupBlocked(targetUrl: String?) {
