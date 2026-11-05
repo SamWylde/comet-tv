@@ -38,6 +38,8 @@ class TabManager(
         var engine: BrowserEngine? = null
         var title: String = ""
         var url: String = ""
+        /** Set when a crashed renderer was replaced without loading; cleared when a page load starts. */
+        var needsLoad = false
     }
 
     private val tabs = mutableListOf<Tab>()
@@ -154,7 +156,7 @@ class TabManager(
         val tab = tabs[index]
         val (engine, created) = ensureEngine(tab)
         attach(engine)
-        if (created) engine.loadUrl(tab.url.ifBlank { homeUrl })
+        if (created || tab.needsLoad) engine.loadUrl(tab.url.ifBlank { homeUrl })
         ui.onNavigationStateChanged(engine.canGoBack(), engine.canGoForward())
         if (tab.url.isNotBlank()) ui.onUrlChanged(tab.url)
     }
@@ -189,6 +191,7 @@ class TabManager(
     /** Per-tab callbacks: always track this tab's title/url; forward to the UI only when active. */
     private fun wrap(tab: Tab) = object : EngineCallbacks {
         override fun onPageStarted(url: String) {
+            tab.needsLoad = false
             tab.url = url
             if (isActive(tab)) ui.onPageStarted(url)
         }
@@ -292,6 +295,7 @@ class TabManager(
         tab.engine = null
         val (engine, _) = ensureEngine(tab)
         if (wasActive) attach(engine)
+        tab.needsLoad = wasActive
         if (wasActive) ui.onRendererRecovered(savedUrl) else engine.loadUrl(savedUrl)
         onChanged()
     }

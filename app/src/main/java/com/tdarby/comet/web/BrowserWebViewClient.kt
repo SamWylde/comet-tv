@@ -32,6 +32,10 @@ class BrowserWebViewClient(
     @Volatile
     private var currentHost: String? = null
 
+    /** URL of the main-frame load in progress (set on redirects and page start). */
+    @Volatile
+    private var mainFrameUrl: String? = null
+
     /**
      * Intercepts top-level navigations. A stream page's player overlay redirects the *current* tab
      * (`window.top.location = <ad>`) rather than opening a popup, so [PopupGuard]/`onCreateWindow`
@@ -39,6 +43,7 @@ class BrowserWebViewClient(
      * ad/redirect hosts (popup blocking on, site not allowlisted) and leaves the user on the page.
      */
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+        if (request.isForMainFrame) mainFrameUrl = request.url?.toString()
         if (!request.isForMainFrame) return false
         val url = request.url?.toString()
         // Non-web links (intent:, market:, tel:, mailto:, ...) can't load in a WebView — hand them
@@ -64,6 +69,7 @@ class BrowserWebViewClient(
     }
 
     override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+        mainFrameUrl = url
         currentHost = AdBlocker.hostOf(url)
         if (AdBlocker.popupEnabled) view.evaluateJavascript(PopupGuard.JS, null)
         callbacks.onPageStarted(url)
@@ -98,7 +104,13 @@ class BrowserWebViewClient(
     }
 
     override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
-        callbacks.onSslError(handler, error)
+        // Only the page itself gets the full-page error; a bad certificate on an image or embed is
+        // cancelled quietly. Unsafe TLS is never proceeded.
+        if (isMainFrameSslError(error.url, mainFrameUrl)) {
+            callbacks.onSslError(handler, error)
+        } else {
+            handler.cancel()
+        }
     }
 
     override fun onReceivedError(
@@ -113,22 +125,6 @@ class BrowserWebViewClient(
                     request.url.toString(),
                     error.description?.toString().orEmpty(),
                     isOffline(view.context)
-                )
-            )
-        }
-    }
-
-    override fun onReceivedHttpError(
-        view: WebView,
-        request: WebResourceRequest,
-        errorResponse: WebResourceResponse
-    ) {
-        if (request.isForMainFrame && errorResponse.statusCode >= 400) {
-            callbacks.onPageFailure(
-                PageFailureClassifier.fromHttp(
-                    errorResponse.statusCode,
-                    request.url.toString(),
-                    errorResponse.reasonPhrase.orEmpty()
                 )
             )
         }
