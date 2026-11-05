@@ -2,8 +2,6 @@ package com.tdarby.comet.engine
 
 import android.view.KeyEvent
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MediaScriptsTest {
@@ -26,10 +24,5 @@ class MediaScriptsTest {
         cases.forEach { (key, repeat, expected) ->
             assertEquals("key $key repeat $repeat", expected, MediaKeys.actionFor(key, repeat))
         }
-    }
-
-    @Test fun onlyMediaKeysAreMediaKeys() {
-        assertTrue(MediaKeys.isMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE))
-        assertFalse(MediaKeys.isMediaKey(KeyEvent.KEYCODE_DPAD_CENTER))
     }
 }

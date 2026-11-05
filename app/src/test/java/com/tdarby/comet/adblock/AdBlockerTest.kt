@@ -85,7 +85,7 @@ class AdBlockerTest {
         assertTrue(AdBlocker.popupBlockingActive("other.test"))
     }
 
-    @Test fun downloadedReplaceDropsWithdrawnRulesButKeepsBundled() {
+    @Test fun downloadedReplaceDropsWithdrawnRules() {
         AdBlocker.installDownloaded("v1-only.test\nboth.test\n".byteInputStream())
         assertTrue(AdBlocker.isBlockedHost("v1-only.test"))
         AdBlocker.installDownloaded("both.test\nv2-only.test\n".byteInputStream())
