@@ -49,6 +49,7 @@ import androidx.core.content.ContextCompat
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
+import androidx.core.view.doOnLayout
 import androidx.core.widget.doOnTextChanged
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -571,6 +572,7 @@ open class BrowserActivity : AppCompatActivity() {
     private fun showErrorPanel(failure: PageFailure) {
         currentFailure = failure
         homeVisible = false
+        if (binding.errorPanel.visibility != View.VISIBLE) cursorWasOnBeforeError = cursor.active
         cursor.setActive(false)
         binding.homePanel.visibility = View.GONE
         binding.errorPanel.visibility = View.VISIBLE
@@ -595,8 +597,17 @@ open class BrowserActivity : AppCompatActivity() {
 
     private fun hideErrorPanel() {
         currentFailure = null
+        val wasShowing = binding.errorPanel.visibility == View.VISIBLE
         binding.errorPanel.visibility = View.GONE
+        if (wasShowing && cursorWasOnBeforeError && !homeVisible) cursor.setActive(true)
+        cursorWasOnBeforeError = false
     }
+
+    private var cursorWasOnBeforeError = false
+    private var renderedHome: RenderedHome? = null
+    private var homeLayoutPending = false
+
+    private data class RenderedHome(val bookmarks: List<HomeTile>, val recent: List<HomeTile>, val columns: Int)
 
     private fun syncHomeVisibility(requestFocus: Boolean = false) {
         val isHome = tabManager.activeUrl().isBlank() || tabManager.activeUrl() == HOME_URL
@@ -613,17 +624,39 @@ open class BrowserActivity : AppCompatActivity() {
     }
 
     private fun refreshHome() {
-        binding.homeBookmarkGrid.removeAllViews()
-        binding.homeRecentGrid.removeAllViews()
-        store.bookmarks.take(HOME_TILE_LIMIT).forEach {
-            addHomeTile(binding.homeBookmarkGrid, HomeTile(it.title, it.url), true)
+        val bookmarkGrid = binding.homeBookmarkGrid
+        val recentGrid = binding.homeRecentGrid
+        val gridWidth = bookmarkGrid.width
+        if (gridWidth <= 0) {
+            if (!homeLayoutPending) {
+                homeLayoutPending = true
+                bookmarkGrid.doOnLayout {
+                    homeLayoutPending = false
+                    if (homeVisible) refreshHome()
+                }
+            }
+            return
         }
-        val recentSites = if (isIncognito) emptyList() else HomeContent.recent(store.history, HOME_TILE_LIMIT)
-        recentSites.forEach {
-            addHomeTile(binding.homeRecentGrid, it, false)
+        val columns = HomeContent.columns(gridWidth, dp(HOME_TILE_WIDTH_DP + 2 * HOME_TILE_MARGIN_DP))
+        val bookmarkTiles = store.bookmarks.take(HOME_TILE_LIMIT).map { HomeTile(it.title, it.url) }
+        val recentTiles = if (isIncognito) emptyList() else HomeContent.recent(store.history, HOME_TILE_LIMIT)
+        val next = RenderedHome(bookmarkTiles, recentTiles, columns)
+        if (next == renderedHome) return
+        renderedHome = next
+
+        val focusedGrid = listOf(bookmarkGrid, recentGrid).firstOrNull { it.hasFocus() }
+        val focusedIndex = focusedGrid?.let { grid -> (0 until grid.childCount).firstOrNull { grid.getChildAt(it).hasFocus() } }
+        bookmarkGrid.removeAllViews()
+        recentGrid.removeAllViews()
+        bookmarkGrid.columnCount = columns
+        recentGrid.columnCount = columns
+        bookmarkTiles.forEach { addHomeTile(bookmarkGrid, it, true) }
+        recentTiles.forEach { addHomeTile(recentGrid, it, false) }
+        if (bookmarkGrid.childCount == 0) addHomeEmpty(bookmarkGrid)
+        if (recentGrid.childCount == 0) addHomeEmpty(recentGrid)
+        if (focusedGrid != null && focusedIndex != null) {
+            focusedGrid.getChildAt(focusedIndex.coerceAtMost(focusedGrid.childCount - 1))?.requestFocus()
         }
-        if (binding.homeBookmarkGrid.childCount == 0) addHomeEmpty(binding.homeBookmarkGrid)
-        if (binding.homeRecentGrid.childCount == 0) addHomeEmpty(binding.homeRecentGrid)
     }
 
     private fun addHomeTile(grid: GridLayout, tile: HomeTile, bookmark: Boolean) {
@@ -646,9 +679,9 @@ open class BrowserActivity : AppCompatActivity() {
             }
         }
         grid.addView(button, GridLayout.LayoutParams().apply {
-            width = dp(260)
+            width = dp(HOME_TILE_WIDTH_DP)
             height = dp(96)
-            setMargins(dp(6), dp(6), dp(6), dp(6))
+            setMargins(dp(HOME_TILE_MARGIN_DP), dp(6), dp(HOME_TILE_MARGIN_DP), dp(6))
         })
     }
 
@@ -912,6 +945,19 @@ open class BrowserActivity : AppCompatActivity() {
 
     private fun rebuildTabSwitcher() {
         val list = binding.tabSwitcherList
+        // Remember which card/action had focus so a background tab update doesn't move it.
+        val oldCards = (list.childCount - 1).coerceAtLeast(0)
+        var focusedCard: Int? = null
+        var focusedClose = false
+        var focusedNewTab = false
+        for (i in 0 until list.childCount) {
+            val child = list.getChildAt(i)
+            if (!child.hasFocus()) continue
+            if (i >= oldCards) focusedNewTab = true else {
+                focusedCard = i
+                focusedClose = (child as? ViewGroup)?.getChildAt(4)?.hasFocus() == true
+            }
+        }
         list.removeAllViews()
         val previews = tabManager.previews(TAB_THUMB_WIDTH, TAB_THUMB_HEIGHT)
         val openButtons = mutableListOf<Button>()
@@ -961,7 +1007,6 @@ open class BrowserActivity : AppCompatActivity() {
                 contentDescription = getString(R.string.menu_close_tab) + ": " + preview.title
                 setOnClickListener {
                     tabManager.closeTab(preview.index)
-                    rebuildTabSwitcher()
                 }
             }
             card.addView(image)
@@ -1003,7 +1048,14 @@ open class BrowserActivity : AppCompatActivity() {
                 close.nextFocusRightId = closeButtons.getOrNull(index + 1)?.id ?: close.id
             }
         }
-        openButtons.getOrNull(tabManager.activePosition())?.requestFocus()
+        val target = when {
+            focusedNewTab -> newTab
+            focusedCard == null -> openButtons.getOrNull(tabManager.activePosition())
+            previews.size < oldCards -> openButtons.getOrNull(focusedCard.coerceAtMost(previews.size - 1))
+            focusedClose -> closeButtons.getOrNull(focusedCard) ?: openButtons.getOrNull(focusedCard)
+            else -> openButtons.getOrNull(focusedCard)
+        }
+        target?.requestFocus()
     }
 
     private fun toggleBookmark() {
@@ -1860,6 +1912,8 @@ open class BrowserActivity : AppCompatActivity() {
     companion object {
         private const val HOME_URL = "about:blank"
         private const val HOME_TILE_LIMIT = 8
+        private const val HOME_TILE_WIDTH_DP = 260
+        private const val HOME_TILE_MARGIN_DP = 6
         private const val MAX_COMPACT_TABS = 8
         private const val TAB_THUMB_WIDTH = 288
         private const val TAB_THUMB_HEIGHT = 162
