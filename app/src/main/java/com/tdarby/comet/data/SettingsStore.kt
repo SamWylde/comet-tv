@@ -103,6 +103,9 @@ class SettingsStore(context: Context) {
         }
     }
 
+    suspend fun remoteShortcutsJsonNow(): String? = ds.data.first()[KEY_REMOTE_SHORTCUTS]
+    suspend fun setRemoteShortcutsJson(json: String) = ds.edit { it[KEY_REMOTE_SHORTCUTS] = json }
+
     suspend fun setFirstRunHintShown(shown: Boolean) = ds.edit { it[KEY_HINT_SHOWN] = shown }
 
     suspend fun setSearchTemplate(template: String) = ds.edit { it[KEY_SEARCH] = template }
@@ -141,6 +144,7 @@ class SettingsStore(context: Context) {
         private val KEY_DIRECT_NAV = booleanPreferencesKey("direct_nav")
         private val KEY_HINT_SHOWN = booleanPreferencesKey("first_run_hint_shown")
         private val KEY_SITE_BROWSING_SETTINGS = stringPreferencesKey("site_browsing_settings_json")
+        private val KEY_REMOTE_SHORTCUTS = stringPreferencesKey("remote_shortcuts_json")
 
         private val KEY_REMEMBER_PLAYBACK = booleanPreferencesKey("remember_playback")
 

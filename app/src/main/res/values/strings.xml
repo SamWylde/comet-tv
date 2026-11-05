@@ -189,4 +189,27 @@
     <string name="resume_prompt">Resume from %1$s?</string>
     <string name="resume_action">Resume</string>
     <string name="start_over_action">Start over</string>
+
+    <!-- w7-input: remote buttons, drag mode, help, stop, link options -->
+    <string name="action_stop">Stop</string>
+    <string name="remote_action_toggle_cursor">Cursor / direct navigation</string>
+    <string name="menu_remote_help">Remote help</string>
+    <string name="menu_drag_mode">Drag mode</string>
+    <string name="menu_link_options">Link options</string>
+    <string name="settings_remote_buttons">Remote buttons</string>
+    <string name="remote_buttons_title">Remote buttons</string>
+    <string name="remote_buttons_add">Add shortcut</string>
+    <string name="remote_buttons_press">Press the remote button you want to use. D-pad, OK, Back, Home, power, volume and media buttons can’t be used. Press Cancel to stop.</string>
+    <string name="remote_buttons_choose_action">Choose what %1$s does</string>
+    <string name="remote_buttons_remove_title">Remove shortcut?</string>
+    <string name="remote_buttons_remove_message">%1$s → %2$s</string>
+    <string name="remote_buttons_remove">Remove</string>
+    <string name="remote_buttons_saved">%1$s → %2$s</string>
+    <string name="remote_help_shortcuts">Your remote button shortcuts:</string>
+    <string name="remote_help_no_shortcuts">No remote button shortcuts are set. Add them in Settings.</string>
+    <string name="drag_banner_armed">Drag mode: press OK to pick up, BACK to cancel</string>
+    <string name="drag_banner_dragging">Dragging: OK to drop, BACK to cancel</string>
+    <string name="drag_needs_page">Open a page first.</string>
+    <string name="link_options_none">No link or image under the cursor.</string>
+    <string name="link_options_place_cursor">Move the cursor onto a link or image, then open Link options again.</string>
 </resources>
