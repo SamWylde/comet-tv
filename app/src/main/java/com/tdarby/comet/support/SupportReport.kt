@@ -28,6 +28,16 @@ data class SupportViewport(
     val loadWithOverviewMode: Boolean? = null
 )
 
+/** Facts about this device's process and memory, separate from the browser identity values. */
+data class SupportDevice(
+    val is64BitProcess: Boolean? = null,
+    val supportedAbis: List<String> = emptyList(),
+    val memoryClassMb: Int? = null,
+    val largeMemoryClassMb: Int? = null,
+    val lowRamDevice: Boolean? = null,
+    val totalRamMb: Long? = null
+)
+
 /** Runtime facts collected by the Android/UI integration layer. */
 data class SupportReportInput(
     val cometVersionName: String?,
@@ -43,7 +53,8 @@ data class SupportReportInput(
     val userAgent: String?,
     val clientHints: UserAgentClientHints?,
     val fullscreenEnabled: Boolean?,
-    val currentUrl: String?
+    val currentUrl: String?,
+    val device: SupportDevice? = null
 )
 
 /** Copy-safe diagnostic data. The current page is deliberately reduced to its host. */
@@ -60,7 +71,8 @@ data class SupportReport(
     val userAgent: String,
     val clientHints: UserAgentClientHints?,
     val fullscreenEnabled: Boolean?,
-    val currentHost: String
+    val currentHost: String,
+    val device: SupportDevice? = null
 ) {
     fun toCopyText(): String = SupportReportFormatter.format(this)
 }
@@ -82,7 +94,8 @@ object SupportReportBuilder {
         userAgent = value(input.userAgent),
         clientHints = input.clientHints,
         fullscreenEnabled = input.fullscreenEnabled,
-        currentHost = host(input.currentUrl)
+        currentHost = host(input.currentUrl),
+        device = input.device
     )
 
     private fun version(name: String?, code: Long?): String {
@@ -131,7 +144,14 @@ object SupportReportFormatter {
         appendLine("UA-CH bitness: ${hint(report.clientHints?.bitness)}")
         appendLine("UA-CH WoW64: ${hint(report.clientHints?.wow64)}")
         appendLine("Fullscreen API enabled: ${hint(report.fullscreenEnabled)}")
-        append("Current host: ${report.currentHost}")
+        appendLine("Current host: ${report.currentHost}")
+        appendLine("-- Device (not the browser identity above) --")
+        appendLine("Process: ${report.device?.is64BitProcess?.let { if (it) "64-bit" else "32-bit" } ?: UNKNOWN}")
+        appendLine("Supported ABIs: ${report.device?.supportedAbis?.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: UNKNOWN}")
+        appendLine("Memory class: ${hint(report.device?.memoryClassMb?.let { "$it MB" })}")
+        appendLine("Large memory class: ${hint(report.device?.largeMemoryClassMb?.let { "$it MB" })}")
+        appendLine("Low-RAM device: ${hint(report.device?.lowRamDevice)}")
+        append("Total RAM: ${hint(report.device?.totalRamMb?.let { "$it MB" })}")
     }
 
     private fun viewport(viewport: SupportViewport?): String {

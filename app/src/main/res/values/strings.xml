@@ -148,4 +148,36 @@
     <!-- w2-tabs: background tab memory -->
     <string name="tab_reloads_when_opened">Reloads when opened</string>
     <string name="menu_reopen_closed_tab">Reopen closed tab</string>
+
+    <!-- w5-updates: guided update, downloads, diagnostics -->
+    <string name="update_state_checking">Checking for updates…</string>
+    <string name="update_state_downloading">Downloading update… %d%%</string>
+    <string name="update_state_verifying">Checking the download…</string>
+    <string name="update_state_ready">Version %s is ready to install.</string>
+    <string name="update_state_permission">Android needs your OK before Comet can install updates. Open settings, allow installs from Comet, then come back.</string>
+    <string name="update_state_installing">The installer is open. Finish it there. If you come back without installing, Comet will tell you.</string>
+    <string name="update_state_not_installed">The update was not installed yet. Retry to open the installer again.</string>
+    <string name="update_open_settings">Open settings</string>
+    <string name="update_retry">Retry</string>
+    <string name="update_check_failed_detail">Couldn\'t check for updates. Check the network connection and try again.</string>
+    <string name="update_error_no_network">No network connection. Reconnect and retry.</string>
+    <string name="update_error_checksum">The download didn\'t match its checksum, so it was not installed. Retry the download.</string>
+    <string name="menu_update_pending">Update available: %s</string>
+    <string name="dl_remove_from_list">Remove from list (keep file)</string>
+    <string name="dl_delete_file">Delete file</string>
+    <string name="dl_delete_confirm">Delete %s from this device?</string>
+    <string name="dl_reason_no_space">not enough storage space</string>
+    <string name="dl_reason_network_data">connection problem while downloading</string>
+    <string name="dl_reason_cannot_resume">can\'t resume, start again</string>
+    <string name="dl_reason_storage_missing">storage not available</string>
+    <string name="dl_reason_file_exists">a file with this name already exists</string>
+    <string name="dl_reason_file_error">couldn\'t save the file</string>
+    <string name="dl_reason_redirects">too many redirects</string>
+    <string name="dl_reason_server_error">server error</string>
+    <string name="dl_reason_not_found">file not found on the server</string>
+    <string name="dl_reason_access_denied">access denied by the site</string>
+    <string name="dl_reason_waiting_network">waiting for network</string>
+    <string name="dl_reason_waiting_wifi">waiting for Wi-Fi</string>
+    <string name="dl_reason_waiting_retry">waiting to retry</string>
+    <string name="dl_reason_unknown">reason unknown</string>
 </resources>

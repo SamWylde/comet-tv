@@ -1,6 +1,7 @@
 package com.tdarby.comet.ui
 
 import android.Manifest
+import android.app.ActivityManager
 import android.app.DownloadManager
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -84,13 +85,16 @@ import com.tdarby.comet.permission.PermissionDecision
 import com.tdarby.comet.permission.PermissionKey
 import com.tdarby.comet.permission.PermissionPolicy
 import com.tdarby.comet.permission.SitePermissionResource
+import com.tdarby.comet.support.SupportDevice
 import com.tdarby.comet.support.SupportReportBuilder
 import com.tdarby.comet.support.SupportReportInput
 import com.tdarby.comet.support.SupportViewport
 import com.tdarby.comet.support.UserAgentBrand
 import com.tdarby.comet.support.UserAgentClientHints
-import com.tdarby.comet.update.ReleaseManifest
-import com.tdarby.comet.update.UpdateChecker
+import com.tdarby.comet.downloads.DownloadReason
+import com.tdarby.comet.downloads.DownloadReasons
+import com.tdarby.comet.downloads.HiddenDownloads
+import com.tdarby.comet.update.UpdateController
 import com.tdarby.comet.web.TabManager
 import com.tdarby.comet.web.TabMemoryPolicy
 import com.tdarby.comet.util.SearchEngines
@@ -290,6 +294,8 @@ open class BrowserActivity : AppCompatActivity() {
     private var hintShownAlready = false
 
     private var isFullscreen = false
+    private val updateController by lazy { UpdateController(this) { isFullscreen } }
+    private val hiddenDownloads by lazy { HiddenDownloads(this) }
     private var exitFullscreen: (() -> Unit)? = null
     private var fullscreenView: View? = null
     private var fullscreenOriginalParent: ViewGroup? = null
@@ -396,7 +402,7 @@ open class BrowserActivity : AppCompatActivity() {
         syncHomeVisibility(requestFocus = true)
         binding.root.post { reportFullyDrawn() }
         if (!isIncognito) {
-            checkForUpdates(manual = false)
+            updateController.check(manual = false)
             maybeShowFirstRunHint()
         }
     }
@@ -771,7 +777,10 @@ open class BrowserActivity : AppCompatActivity() {
                 add(getString(R.string.menu_new_private_tab) to ::openPrivateTab)
                 add(getString(R.string.menu_clear_browsing_data) to ::confirmClearBrowsingData)
                 add(getString(R.string.menu_about) to ::showDiagnostics)
-                add(getString(R.string.menu_update) to { checkForUpdates(manual = true) })
+                updateController.pendingVersionName?.let {
+                    add(getString(R.string.menu_update_pending, it) to { updateController.showPending() })
+                }
+                add(getString(R.string.menu_update) to { updateController.check(manual = true) })
             }
         }
         AlertDialog.Builder(this)
@@ -848,7 +857,8 @@ open class BrowserActivity : AppCompatActivity() {
                         )
                     },
                     fullscreenEnabled = fullscreenEnabled,
-                    currentUrl = engine.currentUrl()
+                    currentUrl = engine.currentUrl(),
+                    device = deviceFacts()
                 )
             )
             val text = report.toCopyText()
@@ -863,6 +873,19 @@ open class BrowserActivity : AppCompatActivity() {
                 .setNegativeButton(R.string.action_close, null)
                 .show()
         }
+    }
+
+    private fun deviceFacts(): SupportDevice {
+        val am = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+        val mem = ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
+        return SupportDevice(
+            is64BitProcess = android.os.Process.is64Bit(),
+            supportedAbis = Build.SUPPORTED_ABIS.toList(),
+            memoryClassMb = am.memoryClass,
+            largeMemoryClassMb = am.largeMemoryClass,
+            lowRamDevice = am.isLowRamDevice,
+            totalRamMb = mem.totalMem / (1024 * 1024)
+        )
     }
 
     private fun confirmClearBrowsingData() {
@@ -1349,7 +1372,9 @@ open class BrowserActivity : AppCompatActivity() {
                 val iMime = c.getColumnIndex(DownloadManager.COLUMN_MEDIA_TYPE)
                 val iCur = c.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
                 val iTot = c.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
+                val iReason = c.getColumnIndex(DownloadManager.COLUMN_REASON)
                 while (c.moveToNext() && rows.size < 40) {
+                    if (hiddenDownloads.isHidden(c.getLong(iId))) continue
                     val status = c.getInt(iStatus)
                     val title = c.getString(iTitle)?.ifBlank { null } ?: "download"
                     val state = when (status) {
@@ -1363,7 +1388,10 @@ open class BrowserActivity : AppCompatActivity() {
                             else getString(R.string.dl_running)
                         }
                     }
-                    rows.add(DownloadRow(c.getLong(iId), title, "$title — $state", status, c.getString(iMime)))
+                    val why = downloadReasonText(DownloadReasons.classify(status, c.getInt(iReason)))
+                    rows.add(DownloadRow(
+                        c.getLong(iId), title, "$title — $state" + (why?.let { " ($it)" } ?: ""), status, c.getString(iMime)
+                    ))
                 }
             }
         }
@@ -1387,12 +1415,44 @@ open class BrowserActivity : AppCompatActivity() {
         ) {
             actions += getString(R.string.dl_cancel) to { dm.remove(row.id); Unit }
         }
-        actions += getString(R.string.dl_delete) to { dm.remove(row.id); Unit }
+        val running = row.status in setOf(
+            DownloadManager.STATUS_RUNNING, DownloadManager.STATUS_PENDING, DownloadManager.STATUS_PAUSED
+        )
+        if (!running) {
+            actions += getString(R.string.dl_remove_from_list) to { hiddenDownloads.hide(row.id) }
+        }
+        actions += getString(R.string.dl_delete_file) to { confirmDeleteDownload(dm, row) }
         AlertDialog.Builder(this)
             .setTitle(row.title)
             .setItems(actions.map { it.first }.toTypedArray()) { _, which -> actions[which].second() }
             .setNegativeButton(R.string.action_close, null)
             .show()
+    }
+
+    private fun confirmDeleteDownload(dm: DownloadManager, row: DownloadRow) {
+        AlertDialog.Builder(this)
+            .setMessage(getString(R.string.dl_delete_confirm, row.title))
+            .setPositiveButton(R.string.dl_delete_file) { _, _ -> dm.remove(row.id); hiddenDownloads.forget(row.id) }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    private fun downloadReasonText(reason: DownloadReason): String? = when (reason) {
+        DownloadReason.NONE -> null
+        DownloadReason.NO_SPACE -> getString(R.string.dl_reason_no_space)
+        DownloadReason.NETWORK_DATA -> getString(R.string.dl_reason_network_data)
+        DownloadReason.CANNOT_RESUME -> getString(R.string.dl_reason_cannot_resume)
+        DownloadReason.STORAGE_MISSING -> getString(R.string.dl_reason_storage_missing)
+        DownloadReason.FILE_EXISTS -> getString(R.string.dl_reason_file_exists)
+        DownloadReason.FILE_ERROR -> getString(R.string.dl_reason_file_error)
+        DownloadReason.TOO_MANY_REDIRECTS -> getString(R.string.dl_reason_redirects)
+        DownloadReason.SERVER_ERROR -> getString(R.string.dl_reason_server_error)
+        DownloadReason.NOT_FOUND -> getString(R.string.dl_reason_not_found)
+        DownloadReason.ACCESS_DENIED -> getString(R.string.dl_reason_access_denied)
+        DownloadReason.WAITING_NETWORK -> getString(R.string.dl_reason_waiting_network)
+        DownloadReason.WAITING_WIFI -> getString(R.string.dl_reason_waiting_wifi)
+        DownloadReason.WAITING_RETRY -> getString(R.string.dl_reason_waiting_retry)
+        DownloadReason.UNKNOWN -> getString(R.string.dl_reason_unknown)
     }
 
     private fun openDownload(dm: DownloadManager, row: DownloadRow) {
@@ -1402,34 +1462,6 @@ open class BrowserActivity : AppCompatActivity() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         runCatching { startActivity(intent) }.onFailure { toast(R.string.external_failed) }
-    }
-
-    private fun checkForUpdates(manual: Boolean) {
-        lifecycleScope.launch {
-            val checker = UpdateChecker(this@BrowserActivity)
-            val manifest = checker.check()
-            when {
-                manifest == null -> if (manual) toast(R.string.update_check_failed)
-                !checker.isNewer(manifest) -> if (manual) toast(R.string.update_none)
-                else -> promptUpdate(checker, manifest)
-            }
-        }
-    }
-
-    private fun promptUpdate(checker: UpdateChecker, manifest: ReleaseManifest) {
-        AlertDialog.Builder(this)
-            .setTitle(getString(R.string.update_available, manifest.versionName))
-            .setMessage(manifest.notes.orEmpty())
-            .setPositiveButton(R.string.update_install) { _, _ ->
-                toast(R.string.update_downloading)
-                lifecycleScope.launch {
-                    val apk = checker.download(manifest)
-                    if (apk == null) toast(R.string.update_failed)
-                    else if (!checker.install(apk)) toast(R.string.update_install_failed)
-                }
-            }
-            .setNegativeButton(R.string.action_cancel, null)
-            .show()
     }
 
     private fun toast(resId: Int) = Toast.makeText(this, resId, Toast.LENGTH_SHORT).show()
@@ -2079,6 +2111,7 @@ open class BrowserActivity : AppCompatActivity() {
         override fun onExitFullscreen() {
             isFullscreen = false
             exitFullscreen = null
+            if (!isIncognito) binding.root.post { updateController.onFullscreenEnded() }
             val view = fullscreenView
             binding.fullscreenContainer.removeView(view)
             val originalParent = fullscreenOriginalParent
@@ -2117,6 +2150,7 @@ open class BrowserActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (::tabManager.isInitialized) tabManager.onResume()
+        if (!isIncognito) updateController.onResume()
     }
 
     override fun onPause() {

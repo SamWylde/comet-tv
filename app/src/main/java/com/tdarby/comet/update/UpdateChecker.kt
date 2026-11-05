@@ -4,11 +4,16 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
 import com.tdarby.comet.BuildConfig
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.net.ConnectException
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.net.URL
 import java.security.MessageDigest
 
@@ -43,25 +48,71 @@ class UpdateChecker(private val context: Context) {
     fun isNewer(manifest: ReleaseManifest): Boolean =
         manifest.versionCode > BuildConfig.VERSION_CODE
 
-    /**
-     * Download the APK to cache and verify its SHA-256. Verification is **mandatory**: a manifest
-     * without a sha256, or a mismatch, yields null (we never install an unverified APK).
-     */
-    suspend fun download(manifest: ReleaseManifest): File? = withContext(Dispatchers.IO) {
-        if (manifest.sha256.isBlank()) return@withContext null
-        runCatching {
-            val out = File(context.cacheDir, "comet-update.apk")
-            (URL(manifest.apkUrl).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 15_000
-                readTimeout = 60_000
-            }.inputStream.use { input -> out.outputStream().use { input.copyTo(it) } }
+    /** Result of [download]: the file is not yet verified; call [verify]. */
+    sealed interface DownloadResult {
+        data class Done(val apk: File) : DownloadResult
+        data class Failed(val noNetwork: Boolean) : DownloadResult
+    }
 
-            if (!sha256Matches(out, manifest.sha256)) {
+    /** The APK file the last download wrote (it may not exist). */
+    fun apkFile(): File = File(context.cacheDir, "comet-update.apk")
+
+    /**
+     * Download the APK to cache. [onProgress] gets whole percent values (only when the size is
+     * known) from the IO thread. Cancelling the calling coroutine stops the copy and deletes the
+     * partial file. The result is unverified: [verify] must pass before installing.
+     */
+    suspend fun download(manifest: ReleaseManifest, onProgress: (Int) -> Unit = {}): DownloadResult =
+        withContext(Dispatchers.IO) {
+            val out = apkFile()
+            try {
+                val conn = (URL(manifest.apkUrl).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 15_000
+                    readTimeout = 60_000
+                }
+                if (conn.responseCode != HttpURLConnection.HTTP_OK) {
+                    return@withContext DownloadResult.Failed(noNetwork = false)
+                }
+                val total = conn.contentLengthLong
+                var done = 0L
+                var lastPercent = -1
+                conn.inputStream.use { input ->
+                    out.outputStream().use { sink ->
+                        val buffer = ByteArray(16 * 1024)
+                        while (true) {
+                            ensureActive()
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            sink.write(buffer, 0, read)
+                            done += read
+                            if (total > 0) {
+                                val percent = (done * 100 / total).toInt()
+                                if (percent != lastPercent) { lastPercent = percent; onProgress(percent) }
+                            }
+                        }
+                    }
+                }
+                DownloadResult.Done(out)
+            } catch (e: CancellationException) {
                 out.delete()
-                return@runCatching null
+                throw e
+            } catch (e: Exception) {
+                out.delete()
+                DownloadResult.Failed(
+                    noNetwork = e is UnknownHostException || e is ConnectException || e is SocketTimeoutException
+                )
             }
-            out
-        }.getOrNull()
+        }
+
+    /**
+     * Verification is **mandatory**: a manifest without a sha256, or a mismatch, fails (we never
+     * install an unverified APK). A failing file is deleted.
+     */
+    suspend fun verify(apk: File, manifest: ReleaseManifest): Boolean = withContext(Dispatchers.IO) {
+        val ok = manifest.sha256.isNotBlank() && apk.isFile &&
+            runCatching { sha256Matches(apk, manifest.sha256) }.getOrDefault(false)
+        if (!ok) apk.delete()
+        ok
     }
 
     /** Launch the package installer for a downloaded APK (user confirms). False if it can't be launched. */

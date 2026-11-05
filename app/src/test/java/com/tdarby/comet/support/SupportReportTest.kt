@@ -45,7 +45,24 @@ class SupportReportTest {
         assertTrue(text.contains("UA-CH mobile: false"))
         assertTrue(text.contains("UA-CH bitness: 64"))
         assertTrue(text.contains("Fullscreen API enabled: true"))
-        assertTrue(text.endsWith("Current host: video.example"))
+        assertTrue(text.contains("Current host: video.example"))
+    }
+
+    @Test fun deviceFactsAreListedSeparatelyFromBrowserIdentity() {
+        val device = SupportDevice(
+            is64BitProcess = false, supportedAbis = listOf("arm64-v8a", "armeabi-v7a"),
+            memoryClassMb = 192, largeMemoryClassMb = 384, lowRamDevice = true, totalRamMb = 1536
+        )
+        val text = SupportReportBuilder.build(input("https://video.example/").copy(device = device)).toCopyText()
+
+        val (browserPart, devicePart) = text.split("-- Device")
+        assertTrue(devicePart.contains("Process: 32-bit"))
+        assertTrue(devicePart.contains("Supported ABIs: arm64-v8a, armeabi-v7a"))
+        assertTrue(devicePart.contains("Memory class: 192 MB"))
+        assertTrue(devicePart.contains("Large memory class: 384 MB"))
+        assertTrue(devicePart.contains("Low-RAM device: true"))
+        assertTrue(devicePart.contains("Total RAM: 1536 MB"))
+        assertFalse(browserPart.contains("32-bit"))
     }
 
     @Test fun missingRuntimeValuesAreRenderedAsUnknown() {
