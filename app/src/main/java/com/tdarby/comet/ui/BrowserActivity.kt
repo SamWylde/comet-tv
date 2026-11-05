@@ -367,8 +367,8 @@ open class BrowserActivity : AppCompatActivity() {
             container = binding.engineContainer,
             homeUrl = HOME_URL,
             create = { cb -> WebViewEngine(this, cb) },
-            init = { e ->
-                applyBrowsingSettings(e, null)
+            init = { e, url ->
+                applyBrowsingSettings(e, AdBlocker.hostOf(url))
                 e.setBlockingEnabled(AdBlocker.networkEnabled)
                 e.applyPopupPolicy()
             },
@@ -1071,15 +1071,39 @@ open class BrowserActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun enqueueDownload(url: String, userAgent: String?, mimeType: String?) {
+    private fun enqueueDownload(
+        url: String,
+        userAgent: String?,
+        contentDisposition: String?,
+        mimeType: String?
+    ) {
+        // Saving to the public Downloads folder needs the storage permission on API 28 only
+        // (DownloadManager enqueue and the pre-Q blob save); newer versions need none.
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            ensureOsPermissions(listOf(Manifest.permission.WRITE_EXTERNAL_STORAGE)) { granted ->
+                if (granted) startDownload(url, userAgent, contentDisposition, mimeType)
+                else toast(R.string.download_failed_storage)
+            }
+            return
+        }
+        startDownload(url, userAgent, contentDisposition, mimeType)
+    }
+
+    private fun startDownload(
+        url: String,
+        userAgent: String?,
+        contentDisposition: String?,
+        mimeType: String?
+    ) {
         // DownloadManager can't fetch blob: URLs — read them in the page instead.
         if (url.startsWith("blob:")) {
             if (tabManager.hasTabs) engine.fetchBlob(url)
             return
         }
         runCatching {
-            val fileName = URLUtil.guessFileName(url, null, mimeType)
+            val fileName = URLUtil.guessFileName(url, contentDisposition, mimeType)
             val request = DownloadManager.Request(url.toUri()).apply {
+                setTitle(fileName)
                 setMimeType(mimeType)
                 userAgent?.let { addRequestHeader("User-Agent", it) }
                 // Propagate cookies so session/login-gated downloads succeed.
@@ -1089,7 +1113,7 @@ open class BrowserActivity : AppCompatActivity() {
             }
             (getSystemService(DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
             toast(R.string.download_started)
-        }
+        }.onFailure { toast(R.string.download_failed) }
     }
 
     private data class DownloadRow(
@@ -1484,7 +1508,7 @@ open class BrowserActivity : AppCompatActivity() {
         }
         if (img != null) {
             actions += getString(R.string.ctx_open_image) to { engine.loadUrl(img) }
-            actions += getString(R.string.ctx_download_image) to { enqueueDownload(img, null, null) }
+            actions += getString(R.string.ctx_download_image) to { enqueueDownload(img, null, null, null) }
         }
         if (actions.isEmpty()) { setCursor(false); return }
         AlertDialog.Builder(this)
@@ -1671,8 +1695,13 @@ open class BrowserActivity : AppCompatActivity() {
             if (!isIncognito) store.recordVisit(engine.currentTitle() ?: url, url)
         }
 
-        override fun onDownloadRequested(url: String, userAgent: String?, mimeType: String?) {
-            enqueueDownload(url, userAgent, mimeType)
+        override fun onDownloadRequested(
+            url: String,
+            userAgent: String?,
+            contentDisposition: String?,
+            mimeType: String?
+        ) {
+            enqueueDownload(url, userAgent, contentDisposition, mimeType)
         }
 
         override fun onShowFileChooser(

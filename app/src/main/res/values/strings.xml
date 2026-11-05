@@ -93,6 +93,8 @@
     <string name="bookmark_added">Bookmarked</string>
     <string name="bookmark_removed">Bookmark removed</string>
     <string name="download_started">Download started</string>
+    <string name="download_failed">Download failed</string>
+    <string name="download_failed_storage">Download failed: Comet needs storage permission to save files</string>
     <string name="action_close">Close</string>
     <string name="menu_update">Check for updates</string>
     <string name="menu_about">About &amp; diagnostics</string>

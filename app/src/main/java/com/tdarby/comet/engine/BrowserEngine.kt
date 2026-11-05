@@ -42,7 +42,12 @@ interface EngineCallbacks {
     fun onOpenInNewTab(url: String) {}
 
     /** A file download was requested by the page. */
-    fun onDownloadRequested(url: String, userAgent: String?, mimeType: String?) {}
+    fun onDownloadRequested(
+        url: String,
+        userAgent: String?,
+        contentDisposition: String?,
+        mimeType: String?
+    ) {}
 
     /** Page opened an `<input type=file>`. Return true if a picker was launched. */
     fun onShowFileChooser(
