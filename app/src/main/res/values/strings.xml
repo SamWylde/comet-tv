@@ -144,4 +144,8 @@
     <string name="bookmarks_import_too_large">That file is too large (limit 1 MB)</string>
     <string name="bookmarks_import_result">Added %1$d bookmarks, %2$d were already saved</string>
     <string name="bookmarks_import_skipped">. %1$d skipped (invalid or over the 1,000 limit)</string>
+
+    <!-- w2-tabs: background tab memory -->
+    <string name="tab_reloads_when_opened">Reloads when opened</string>
+    <string name="menu_reopen_closed_tab">Reopen closed tab</string>
 </resources>
