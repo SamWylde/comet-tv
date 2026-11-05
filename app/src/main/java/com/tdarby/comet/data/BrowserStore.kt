@@ -1,6 +1,7 @@
 package com.tdarby.comet.data
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -30,8 +31,8 @@ class BrowserStore(context: Context) {
     val history: MutableList<HistoryItem> = mutableListOf()
 
     init {
-        runCatching { bookmarks.addAll(readSites(bookmarksFile)) }
-        runCatching { history.addAll(readHistory(historyFile)) }
+        bookmarks.addAll(readSites(bookmarksFile))
+        history.addAll(readHistory(historyFile))
         seedDefaultBookmarks()
     }
 
@@ -77,47 +78,54 @@ class BrowserStore(context: Context) {
 
     private fun saveBookmarks() {
         val snapshot = bookmarks.toList()
-        io.launch { writeSites(bookmarksFile, snapshot) }
+        io.launch {
+            runCatching { writeSites(bookmarksFile, snapshot) }
+                .onFailure { Log.w(TAG, "Saving bookmarks failed", it) }
+        }
     }
 
     private fun saveHistory() {
         val snapshot = history.toList()
-        io.launch { writeHistory(historyFile, snapshot) }
-    }
-
-    private fun readSites(file: File): List<SiteItem> {
-        if (!file.exists()) return emptyList()
-        val arr = JSONArray(file.readText())
-        return (0 until arr.length()).map {
-            val o = arr.getJSONObject(it)
-            SiteItem(o.optString("title"), o.optString("url"))
+        io.launch {
+            runCatching { writeHistory(historyFile, snapshot) }
+                .onFailure { Log.w(TAG, "Saving history failed", it) }
         }
     }
+
+    private fun readSites(file: File): List<SiteItem> =
+        AtomicFiles.readOrSetAside(file, emptyList()) { text ->
+            val arr = JSONArray(text)
+            (0 until arr.length()).map {
+                val o = arr.getJSONObject(it)
+                SiteItem(o.optString("title"), o.optString("url"))
+            }
+        }
 
     private fun writeSites(file: File, items: List<SiteItem>) {
         val arr = JSONArray()
         items.forEach { arr.put(JSONObject().put("title", it.title).put("url", it.url)) }
-        file.writeText(arr.toString())
+        AtomicFiles.writeText(file, arr.toString())
     }
 
-    private fun readHistory(file: File): List<HistoryItem> {
-        if (!file.exists()) return emptyList()
-        val arr = JSONArray(file.readText())
-        return (0 until arr.length()).map {
-            val o = arr.getJSONObject(it)
-            HistoryItem(o.optString("title"), o.optString("url"), o.optLong("time"))
+    private fun readHistory(file: File): List<HistoryItem> =
+        AtomicFiles.readOrSetAside(file, emptyList()) { text ->
+            val arr = JSONArray(text)
+            (0 until arr.length()).map {
+                val o = arr.getJSONObject(it)
+                HistoryItem(o.optString("title"), o.optString("url"), o.optLong("time"))
+            }
         }
-    }
 
     private fun writeHistory(file: File, items: List<HistoryItem>) {
         val arr = JSONArray()
         items.forEach {
             arr.put(JSONObject().put("title", it.title).put("url", it.url).put("time", it.time))
         }
-        file.writeText(arr.toString())
+        AtomicFiles.writeText(file, arr.toString())
     }
 
     companion object {
+        private const val TAG = "BrowserStore"
         private const val MAX_HISTORY = 500
         private const val DEFAULT_BUFFSPORTS_TITLE = "BuffSports"
         private const val DEFAULT_BUFFSPORTS_URL = "https://buffsports.io/"
