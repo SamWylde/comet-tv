@@ -7,6 +7,17 @@ import org.junit.Test
 class HomeContentTest {
 
     @Test
+    fun columnsFitTheAvailableWidthWithoutClipping() {
+        val cell = 272 // 260dp tile + 2 x 6dp margin
+        assertEquals(3, HomeContent.columns(864, cell))
+        assertEquals(4, HomeContent.columns(1184, cell))
+        assertEquals(4, HomeContent.columns(3000, cell))
+        assertEquals(1, HomeContent.columns(100, cell))
+        assertEquals(1, HomeContent.columns(0, cell))
+        assertEquals(1, HomeContent.columns(-5, cell))
+    }
+
+    @Test
     fun recentKeepsHistoryOrderWhileFilteringAndDeduplicating() {
         val history = listOf(
             visit("Newest", "https://example.com/", 60),

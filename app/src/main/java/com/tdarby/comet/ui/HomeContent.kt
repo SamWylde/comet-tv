@@ -12,4 +12,8 @@ object HomeContent {
         .take(limit)
         .map { HomeTile(it.title.ifBlank { it.url }, it.url) }
         .toList()
+
+    /** How many tiles of [cellWidth] (tile plus margins) fit in [availableWidth], between 1 and [maxColumns]. */
+    fun columns(availableWidth: Int, cellWidth: Int, maxColumns: Int = 4): Int =
+        if (availableWidth <= 0 || cellWidth <= 0) 1 else (availableWidth / cellWidth).coerceIn(1, maxColumns)
 }
