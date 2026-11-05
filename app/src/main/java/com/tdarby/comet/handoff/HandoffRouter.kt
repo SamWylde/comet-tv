@@ -95,7 +95,9 @@ class HandoffRouter(
                 HandoffResponse(303, mapOf("Location" to TOKEN_PREFIX + session.token))
             is HandoffSession.CodeResult.Wrong -> HandoffResponse.html(
                 403,
-                HandoffPages.codePage("Wrong code. ${result.triesLeft} tries left.")
+                HandoffPages.codePage(
+                    if (result.triesLeft == 1) "Wrong code. 1 try left." else "Wrong code. ${result.triesLeft} tries left."
+                )
             )
             HandoffSession.CodeResult.Locked ->
                 message(423, "Session locked", "Too many wrong codes. Start a new session on the TV.")

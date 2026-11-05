@@ -50,7 +50,7 @@ object HandoffPages {
     )
 
     fun sentPage(token: String, text: String): String = page(
-        "<h1 class=\"ok\">Sent</h1><p>The TV is asking whether to open it.</p>" +
+        "<h1 class=\"ok\">Sent</h1><p>Check the TV: it asks before opening this.</p>" +
             "<p>${escape(text.take(200))}</p><p><a href=\"/t/${escape(token)}\">Send another</a></p>"
     )
 

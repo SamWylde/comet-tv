@@ -25,7 +25,12 @@ enum class RemoteAction(val id: String, val labelRes: Int) {
     BACK("back", R.string.action_back),
     FORWARD("forward", R.string.action_forward),
     SETTINGS("settings", R.string.settings_title),
-    HELP("help", R.string.menu_remote_help);
+    HELP("help", R.string.menu_remote_help),
+    THIS_SITE("this_site", R.string.menu_this_site),
+    SEND_FROM_PHONE("send_from_phone", R.string.menu_send_from_phone),
+    LINK_OPTIONS("link_options", R.string.menu_link_options),
+    DRAG_MODE("drag_mode", R.string.menu_drag_mode),
+    REOPEN_CLOSED_TAB("reopen_closed_tab", R.string.menu_reopen_closed_tab);
 
     companion object {
         fun fromId(id: String): RemoteAction? = entries.firstOrNull { it.id == id }

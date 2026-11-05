@@ -9,8 +9,6 @@
     <string name="action_cursor">Toggle cursor</string>
     <string name="settings_title">Settings</string>
     <string name="settings_desktop">Request desktop site</string>
-    <string name="settings_site_browsing">Site compatibility</string>
-    <string name="settings_site_browsing_host">Site compatibility: %s</string>
     <string name="settings_site_identity">Browser identity</string>
     <string name="settings_site_viewport">Layout viewport</string>
     <string name="settings_mode_default">Default</string>
@@ -50,7 +48,6 @@
     <string name="dl_running_pct">downloading %d%%</string>
     <string name="dl_open">Open</string>
     <string name="dl_cancel">Cancel download</string>
-    <string name="dl_delete">Remove from list</string>
     <string name="menu_voice">Voice search</string>
     <string name="menu_zoom_in">Zoom in</string>
     <string name="menu_zoom_out">Zoom out</string>
@@ -86,7 +83,13 @@
     <string name="ctx_copied">Link copied</string>
     <string name="blocked_redirect">Blocked a redirect</string>
     <string name="hint_title">Using Comet with your remote</string>
-    <string name="hint_body">• Press DOWN from the address bar or toolbar to enter the page.\n• The D-pad then moves the pointer; press OK to click.\n• Press BACK once to return to the address bar, then again to go back.\n• Press the remote MENU key, or move right through the toolbar, for browser options.\n• Long-press OK on a link or image for more options.</string>
+    <string name="hint_body">• Press DOWN from the address bar or toolbar to enter the page.
+• The D-pad then moves the pointer; press OK to click.
+• Press BACK once to return to the address bar, then again to go back.
+• Press the remote MENU key, or move right through the toolbar, for browser options.
+• Long-press OK on a link or image for more options. If your remote can’t long-press, use Menu &gt; Link options.
+• In a fullscreen video, press OK or the arrows to show the video controls.
+• Too much typing? Menu &gt; Send from phone opens a link you send from your phone.</string>
     <string name="hint_got_it">Got it</string>
     <string name="bookmarks_empty">No bookmarks yet</string>
     <string name="history_empty">No history yet</string>
@@ -136,14 +139,14 @@
     <string name="bookmark_delete">Delete</string>
     <string name="bookmarks_export">Export</string>
     <string name="bookmarks_import">Import</string>
-    <string name="bookmarks_exported">Saved %1$d bookmarks to Downloads as %2$s</string>
+    <string name="bookmarks_exported">Bookmarks exported: %1$d. The file is in Downloads: %2$s</string>
     <string name="bookmarks_export_failed">Couldn’t save the bookmarks file</string>
-    <string name="bookmarks_import_none">No Comet bookmark files found in Downloads</string>
+    <string name="bookmarks_import_none">No Comet bookmark files in Downloads. Export bookmarks first, or copy a backup into Downloads.</string>
     <string name="bookmarks_import_failed">Couldn’t read that file</string>
     <string name="bookmarks_import_invalid">That isn’t a Comet bookmarks file</string>
-    <string name="bookmarks_import_too_large">That file is too large (limit 1 MB)</string>
-    <string name="bookmarks_import_result">Added %1$d bookmarks, %2$d were already saved</string>
-    <string name="bookmarks_import_skipped">. %1$d skipped (invalid or over the 1,000 limit)</string>
+    <string name="bookmarks_import_too_large">That file is too big to be a bookmarks backup (limit 1 MB)</string>
+    <string name="bookmarks_import_result">Bookmarks added: %1$d. Already saved: %2$d.</string>
+    <string name="bookmarks_import_skipped"> Skipped: %1$d (not web addresses, or over the 1,000 limit).</string>
 
     <!-- w2-tabs: background tab memory -->
     <string name="tab_reloads_when_opened">Reloads when opened</string>
@@ -151,38 +154,38 @@
 
     <!-- w5-updates: guided update, downloads, diagnostics -->
     <string name="update_state_checking">Checking for updates…</string>
-    <string name="update_state_downloading">Downloading update… %d%%</string>
+    <string name="update_state_downloading">Downloading the update… %d%%</string>
     <string name="update_state_verifying">Checking the download…</string>
     <string name="update_state_ready">Version %s is ready to install.</string>
-    <string name="update_state_permission">Android needs your OK before Comet can install updates. Open settings, allow installs from Comet, then come back.</string>
-    <string name="update_state_installing">The installer is open. Finish it there. If you come back without installing, Comet will tell you.</string>
-    <string name="update_state_not_installed">The update was not installed yet. Retry to open the installer again.</string>
+    <string name="update_state_permission">Android needs your permission before Comet can install updates. Choose Open settings, turn on “Allow from this source” for Comet, then press BACK to return here.</string>
+    <string name="update_state_installing">Finish installing in the window that opened. If you leave it without installing, Comet will tell you here.</string>
+    <string name="update_state_not_installed">The update isn’t installed yet. Choose Retry to open the installer again.</string>
     <string name="update_open_settings">Open settings</string>
     <string name="update_retry">Retry</string>
-    <string name="update_check_failed_detail">Couldn\'t check for updates. Check the network connection and try again.</string>
-    <string name="update_error_no_network">No network connection. Reconnect and retry.</string>
-    <string name="update_error_checksum">The download didn\'t match its checksum, so it was not installed. Retry the download.</string>
+    <string name="update_check_failed_detail">Couldn’t check for updates. Check the TV’s internet connection and try again.</string>
+    <string name="update_error_no_network">The TV is offline. Reconnect it to the internet and try again.</string>
+    <string name="update_error_checksum">The downloaded file didn’t match the published release, so Comet didn’t install it. Try again.</string>
     <string name="menu_update_pending">Update available: %s</string>
-    <string name="dl_remove_from_list">Remove from list (keep file)</string>
+    <string name="dl_remove_from_list">Remove from list (keep the file)</string>
     <string name="dl_delete_file">Delete file</string>
-    <string name="dl_delete_confirm">Delete %s from this device?</string>
+    <string name="dl_delete_confirm">Delete %s from this TV? This can’t be undone.</string>
     <string name="dl_reason_no_space">not enough storage space</string>
-    <string name="dl_reason_network_data">connection problem while downloading</string>
-    <string name="dl_reason_cannot_resume">can\'t resume, start again</string>
-    <string name="dl_reason_storage_missing">storage not available</string>
+    <string name="dl_reason_network_data">the connection dropped</string>
+    <string name="dl_reason_cannot_resume">can’t continue, download it again</string>
+    <string name="dl_reason_storage_missing">storage isn’t available</string>
     <string name="dl_reason_file_exists">a file with this name already exists</string>
-    <string name="dl_reason_file_error">couldn\'t save the file</string>
+    <string name="dl_reason_file_error">couldn’t save the file</string>
     <string name="dl_reason_redirects">too many redirects</string>
-    <string name="dl_reason_server_error">server error</string>
-    <string name="dl_reason_not_found">file not found on the server</string>
-    <string name="dl_reason_access_denied">access denied by the site</string>
+    <string name="dl_reason_server_error">the site had an error</string>
+    <string name="dl_reason_not_found">the file isn’t on the site any more</string>
+    <string name="dl_reason_access_denied">the site refused the download</string>
     <string name="dl_reason_waiting_network">waiting for network</string>
     <string name="dl_reason_waiting_wifi">waiting for Wi-Fi</string>
     <string name="dl_reason_waiting_retry">waiting to retry</string>
     <string name="dl_reason_unknown">reason unknown</string>
 
     <!-- w8-resume: continue watching -->
-    <string name="settings_remember_playback">Remember where I stopped videos</string>
+    <string name="settings_remember_playback">Remember where I stop videos (Continue watching)</string>
     <string name="home_continue_watching">Continue watching</string>
     <string name="continue_time_left">%1$d min left</string>
     <string name="continue_time_left_hours">%1$dh %2$02dm left</string>
@@ -192,45 +195,44 @@
 
     <!-- w7-input: remote buttons, drag mode, help, stop, link options -->
     <string name="action_stop">Stop</string>
-    <string name="remote_action_toggle_cursor">Cursor / direct navigation</string>
+    <string name="remote_action_toggle_cursor">Switch cursor / direct navigation</string>
     <string name="menu_remote_help">Remote help</string>
     <string name="menu_drag_mode">Drag mode</string>
     <string name="menu_link_options">Link options</string>
     <string name="settings_remote_buttons">Remote buttons</string>
     <string name="remote_buttons_title">Remote buttons</string>
     <string name="remote_buttons_add">Add shortcut</string>
-    <string name="remote_buttons_press">Press the remote button you want to use. D-pad, OK, Back, Home, power, volume and media buttons can’t be used. Press Cancel to stop.</string>
+    <string name="remote_buttons_press">Press the remote button you want to use. The arrows, OK, BACK, HOME, power, volume and media buttons can’t be assigned.</string>
     <string name="remote_buttons_choose_action">Choose what %1$s does</string>
     <string name="remote_buttons_remove_title">Remove shortcut?</string>
-    <string name="remote_buttons_remove_message">%1$s → %2$s</string>
     <string name="remote_buttons_remove">Remove</string>
     <string name="remote_buttons_saved">%1$s → %2$s</string>
     <string name="remote_help_shortcuts">Your remote button shortcuts:</string>
-    <string name="remote_help_no_shortcuts">No remote button shortcuts are set. Add them in Settings.</string>
-    <string name="drag_banner_armed">Drag mode: press OK to pick up, BACK to cancel</string>
-    <string name="drag_banner_dragging">Dragging: OK to drop, BACK to cancel</string>
-    <string name="drag_needs_page">Open a page first.</string>
-    <string name="link_options_none">No link or image under the cursor.</string>
-    <string name="link_options_place_cursor">Move the cursor onto a link or image, then open Link options again.</string>
+    <string name="remote_help_no_shortcuts">No shortcuts yet. To give a spare remote button a job, go to Settings &gt; Remote buttons.</string>
+    <string name="drag_banner_armed">Drag mode: move to what you want to drag, then press OK to pick it up. BACK cancels.</string>
+    <string name="drag_banner_dragging">Dragging: press OK to drop it. BACK cancels.</string>
+    <string name="drag_needs_page">Open a web page first</string>
+    <string name="link_options_none">There’s no link or image under the cursor</string>
+    <string name="link_options_place_cursor">Move the cursor onto a link or image, then choose Link options again</string>
 
     <!-- w3-site: "This site" panel -->
     <string name="menu_this_site">This site</string>
     <string name="site_text_size">Text size</string>
     <string name="site_text_size_value">%1$d%%</string>
     <string name="site_text_size_default">%1$d%% (default)</string>
-    <string name="site_remote_mode">Remote control</string>
-    <string name="site_remote_global">Use global setting</string>
+    <string name="site_remote_mode">Remote control on this site</string>
+    <string name="site_remote_global">Same as Settings</string>
     <string name="site_remote_cursor">Cursor</string>
     <string name="site_remote_direct">Direct navigation</string>
-    <string name="site_pause_title">Pause until Comet closes</string>
-    <string name="site_pause_network">Network blocking</string>
-    <string name="site_pause_cosmetic">Cosmetic filtering</string>
+    <string name="site_pause_title">Turn off until Comet closes</string>
+    <string name="site_pause_network">Ad and tracker blocking</string>
+    <string name="site_pause_cosmetic">Hiding empty ad spaces</string>
     <string name="site_pause_popups">Popup blocking</string>
-    <string name="site_pause_redirects">Redirect blocking</string>
+    <string name="site_pause_redirects">Strict redirect blocking</string>
     <string name="site_blocked_title">Blocked on this page</string>
-    <string name="site_blocked_empty">Nothing blocked on this page</string>
-    <string name="site_blocked_layer_network">network</string>
-    <string name="site_blocked_layer_cosmetic">cosmetic</string>
+    <string name="site_blocked_empty">Nothing has been blocked on this page</string>
+    <string name="site_blocked_layer_network">ad or tracker</string>
+    <string name="site_blocked_layer_cosmetic">ad space</string>
     <string name="site_blocked_layer_popup">popup</string>
     <string name="site_blocked_layer_redirect">redirect</string>
     <string name="site_blocked_line">%1$s  (%2$s)</string>
@@ -238,19 +240,21 @@
     <string name="site_action_reload">Reload</string>
     <string name="site_action_reset">Reset this site\'s settings</string>
     <string name="site_action_diagnostics">Diagnostics</string>
-    <string name="site_reset_done">Settings reset for %s</string>
+    <string name="site_reset_done">Comet’s settings for %s were reset</string>
 
     <!-- w6-handoff: send a link from a phone -->
     <string name="menu_send_from_phone">Send from phone</string>
     <string name="handoff_title">Send from phone</string>
     <string name="handoff_starting">Starting…</string>
-    <string name="handoff_scan">Scan the code with your phone, or open this address and enter the code:</string>
+    <string name="handoff_scan">Scan the code with your phone’s camera. Or, on a phone on the same Wi-Fi, open this address and enter the code:</string>
     <string name="handoff_code">Code: %1$s</string>
-    <string name="handoff_no_network">Can’t start. Connect the TV to Wi-Fi or Ethernet first.</string>
+    <string name="handoff_no_network">The TV isn’t on Wi-Fi or Ethernet, so your phone can’t reach it. Connect the TV to your home network first.</string>
     <string name="handoff_start_failed">Couldn’t start. Close this and try again.</string>
-    <string name="handoff_ended_expired">This session ended after 10 minutes. Close this and open it again to start a new one.</string>
-    <string name="handoff_ended_locked">This session was locked after too many wrong codes. Close this and open it again to start a new one.</string>
+    <string name="handoff_ended_expired">This ended after 10 minutes. Close it and choose Send from phone again for a new code.</string>
+    <string name="handoff_ended_locked">This was stopped after too many wrong codes. Close it and choose Send from phone again for a new code.</string>
     <string name="handoff_confirm_title">Link from your phone</string>
-    <string name="handoff_confirm_message">Open %1$s from your phone?</string>
+    <string name="handoff_confirm_message">Open this from your phone?
+
+%1$s</string>
     <string name="handoff_open_new_tab">Open in new tab</string>
 </resources>

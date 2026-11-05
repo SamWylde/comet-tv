@@ -821,40 +821,37 @@ open class BrowserActivity : AppCompatActivity() {
     private fun showMenu() {
         val url = engine.currentUrl()
         val bookmarked = url != null && store.isBookmarked(url)
-        val actions = buildList {
-            if (!isIncognito) add(getString(R.string.settings_title) to ::showSettings)
-            addAll(listOf(
-            getString(R.string.menu_tabs) to ::showTabSwitcher,
-            getString(R.string.menu_home) to ::showHome,
-            getString(R.string.menu_bookmarks) to ::showBookmarks,
-            getString(R.string.menu_downloads) to ::showDownloads,
-            getString(R.string.menu_send_from_phone) to ::showSendFromPhone,
-            getString(R.string.menu_new_tab) to ::openNewTab,
-            getString(R.string.menu_close_tab) to { tabManager.closeActive() },
-            getString(R.string.menu_voice) to ::launchVoiceSearch,
-            getString(R.string.menu_zoom_in) to { engine.zoomIn() },
-            getString(R.string.menu_zoom_out) to { engine.zoomOut() }
-            ))
+        val normal = !isIncognito
+        val actions = buildList<Pair<String, () -> Unit>> {
+            if (normal) add(getString(R.string.settings_title) to ::showSettings)
+            if (siteControlsHost() != null) add(getString(R.string.menu_this_site) to ::showSiteControls)
+            if (normal) updateController.pendingVersionName?.let {
+                add(getString(R.string.menu_update_pending, it) to { updateController.showPending() })
+            }
+            add(getString(R.string.menu_tabs) to ::showTabSwitcher)
+            add(getString(R.string.menu_home) to ::showHome)
+            if (normal) add(getString(R.string.menu_history) to ::showHistory)
+            add(getString(R.string.menu_bookmarks) to ::showBookmarks)
+            if (normal) add(getString(if (bookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark) to
+                ::toggleBookmark)
+            add(getString(R.string.menu_downloads) to ::showDownloads)
+            add(getString(R.string.menu_send_from_phone) to ::showSendFromPhone)
+            add(getString(R.string.menu_new_tab) to ::openNewTab)
+            if (normal && tabManager.hasClosedTab()) {
+                add(getString(R.string.menu_reopen_closed_tab) to { tabManager.reopenClosedTab() })
+            }
+            add(getString(R.string.menu_close_tab) to { tabManager.closeActive() })
+            if (normal) add(getString(R.string.menu_new_private_tab) to ::openPrivateTab)
+            add(getString(R.string.menu_voice) to ::launchVoiceSearch)
             add(getString(R.string.menu_link_options) to ::showLinkOptionsAtCursor)
             add(getString(R.string.menu_drag_mode) to ::startDragMode)
+            add(getString(R.string.menu_zoom_in) to { engine.zoomIn() })
+            add(getString(R.string.menu_zoom_out) to { engine.zoomOut() })
             add(getString(R.string.menu_remote_help) to ::showRemoteHelp)
-            if (!isIncognito) {
-                if (tabManager.hasClosedTab()) {
-                    add(getString(R.string.menu_reopen_closed_tab) to { tabManager.reopenClosedTab() })
-                }
-                add(3, getString(R.string.menu_history) to ::showHistory)
-                add(getString(if (bookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark) to
-                    ::toggleBookmark)
-                add(getString(R.string.menu_new_private_tab) to ::openPrivateTab)
+            if (normal) {
                 add(getString(R.string.menu_clear_browsing_data) to ::confirmClearBrowsingData)
                 add(getString(R.string.menu_about) to ::showDiagnostics)
-                updateController.pendingVersionName?.let {
-                    add(getString(R.string.menu_update_pending, it) to { updateController.showPending() })
-                }
                 add(getString(R.string.menu_update) to { updateController.check(manual = true) })
-            }
-            if (siteControlsHost() != null) {
-                add(if (isIncognito) 0 else 1, getString(R.string.menu_this_site) to ::showSiteControls)
             }
         }
         AlertDialog.Builder(this)
@@ -1963,6 +1960,11 @@ open class BrowserActivity : AppCompatActivity() {
             RemoteAction.FORWARD -> if (engine.canGoForward()) engine.goForward()
             RemoteAction.SETTINGS -> if (!isIncognito) showSettings()
             RemoteAction.HELP -> showRemoteHelp()
+            RemoteAction.THIS_SITE -> if (siteControlsHost() != null) showSiteControls()
+            RemoteAction.SEND_FROM_PHONE -> showSendFromPhone()
+            RemoteAction.LINK_OPTIONS -> showLinkOptionsAtCursor()
+            RemoteAction.DRAG_MODE -> startDragMode()
+            RemoteAction.REOPEN_CLOSED_TAB -> if (!isIncognito && tabManager.hasClosedTab()) tabManager.reopenClosedTab()
         }
     }
 
