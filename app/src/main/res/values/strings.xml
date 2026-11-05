@@ -180,4 +180,13 @@
     <string name="dl_reason_waiting_wifi">waiting for Wi-Fi</string>
     <string name="dl_reason_waiting_retry">waiting to retry</string>
     <string name="dl_reason_unknown">reason unknown</string>
+
+    <!-- w8-resume: continue watching -->
+    <string name="settings_remember_playback">Remember where I stopped videos</string>
+    <string name="home_continue_watching">Continue watching</string>
+    <string name="continue_time_left">%1$d min left</string>
+    <string name="continue_time_left_hours">%1$dh %2$02dm left</string>
+    <string name="resume_prompt">Resume from %1$s?</string>
+    <string name="resume_action">Resume</string>
+    <string name="start_over_action">Start over</string>
 </resources>
