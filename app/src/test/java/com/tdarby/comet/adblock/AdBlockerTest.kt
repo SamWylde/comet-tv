@@ -12,9 +12,11 @@ class AdBlockerTest {
 
     @After fun restorePolicy() {
         AdBlocker.networkEnabled = true
+        AdBlocker.cosmeticEnabled = true
         AdBlocker.popupEnabled = true
         AdBlocker.redirectBlockEnabled = false
         AdBlocker.setAllowlist(emptySet())
+        AdBlocker.exceptions.clear()
     }
 
     @Test
@@ -83,6 +85,50 @@ class AdBlockerTest {
         AdBlocker.setAllowlist(setOf("example.com"))
         assertFalse(AdBlocker.popupBlockingActive("video.example.com"))
         assertTrue(AdBlocker.popupBlockingActive("other.test"))
+    }
+
+    @Test fun pausingOneLayerForASiteLiftsOnlyThatLayerOnThatSiteAndItsSubdomains() {
+        AdBlocker.installDownloaded("0.0.0.0 hostile.test\n".byteInputStream())
+        AdBlocker.redirectBlockEnabled = true
+        // Each layer's check, true while that layer is blocking on the given page host.
+        val layers = mapOf<BlockLayer, (String) -> Boolean>(
+            BlockLayer.NETWORK to { page -> AdBlocker.shouldBlock("https://hostile.test/x", page) },
+            BlockLayer.COSMETIC to { page -> AdBlocker.cosmeticActive(page) },
+            BlockLayer.POPUP to { page -> AdBlocker.popupBlockingActive(page) },
+            BlockLayer.REDIRECT to { page -> AdBlocker.shouldBlockRedirect("https://affiliate.test/", page) }
+        )
+        layers.forEach { (paused, _) ->
+            AdBlocker.exceptions.setPausedLayers("example.com", setOf(paused))
+            layers.forEach { (layer, blocking) ->
+                val onPausedSite = layer != paused
+                assertEquals("$layer on example.com with $paused paused", onPausedSite, blocking("example.com"))
+                assertEquals("$layer on a subdomain with $paused paused", onPausedSite, blocking("video.example.com"))
+                assertTrue("$layer elsewhere with $paused paused", blocking("other.test"))
+                assertTrue("$layer on a lookalike with $paused paused", blocking("notexample.com"))
+            }
+        }
+    }
+
+    @Test fun pausedPopupBlockingAlsoSkipsAdHostNavigationAndTheStartupScript() {
+        AdBlocker.installDownloaded("0.0.0.0 hostile.test\n".byteInputStream())
+        AdBlocker.exceptions.setPausedLayers("stream.test", setOf(BlockLayer.POPUP))
+        assertFalse(AdBlocker.shouldBlockNavigation("https://hostile.test/ad", "stream.test"))
+        assertTrue(AdBlocker.shouldBlockNavigation("https://hostile.test/ad", "other.test"))
+        assertTrue("stream.test" in AdBlocker.popupScriptSkipHosts())
+    }
+
+    @Test fun turningAPauseOffAlsoLiftsAParentDomainEntryThatCoveredTheSite() {
+        AdBlocker.exceptions.setPausedLayers("example.com", setOf(BlockLayer.NETWORK, BlockLayer.POPUP))
+        assertTrue(AdBlocker.exceptions.isPaused(BlockLayer.NETWORK, "video.example.com"))
+
+        AdBlocker.exceptions.setPausedLayers("Video.Example.com.", setOf(BlockLayer.POPUP))
+
+        assertFalse(AdBlocker.exceptions.isPaused(BlockLayer.NETWORK, "video.example.com"))
+        assertTrue(AdBlocker.exceptions.isPaused(BlockLayer.POPUP, "video.example.com"))
+        // As with the allowlist, the parent entry is removed rather than split, so the parent and
+        // its other subdomains are no longer paused either.
+        assertFalse(AdBlocker.exceptions.isPaused(BlockLayer.POPUP, "example.com"))
+        assertFalse(AdBlocker.exceptions.isPaused(BlockLayer.POPUP, "other.example.com"))
     }
 
     @Test fun downloadedReplaceDropsWithdrawnRules() {

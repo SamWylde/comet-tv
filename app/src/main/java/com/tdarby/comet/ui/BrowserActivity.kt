@@ -61,8 +61,6 @@ import com.tdarby.comet.BuildConfig
 import com.tdarby.comet.R
 import com.tdarby.comet.adblock.AdBlocker
 import com.tdarby.comet.data.SettingsStore
-import com.tdarby.comet.data.BrowsingIdentity
-import com.tdarby.comet.data.BrowsingViewport
 import com.tdarby.comet.data.ResolvedSiteBrowsingSettings
 import com.tdarby.comet.data.SiteBrowsingPolicy
 import com.tdarby.comet.data.SiteBrowsingSettings
@@ -283,7 +281,9 @@ open class BrowserActivity : AppCompatActivity() {
     private var siteBrowsingSettings: Map<String, SiteBrowsingSettings> = emptyMap()
     private var activeBrowsingSettings = SiteBrowsingPolicy.resolve(null, false)
     private var searchTemplate = SettingsStore.DEFAULT_SEARCH
+    /** Whether direct navigation is on for the current page: the global toggle unless the site overrides it. */
     private var directNav = false
+    private var globalDirectNav = false
     private var cursorSpeedSetting = SettingsStore.DEFAULT_CURSOR_SPEED
     private var hintShownAlready = false
 
@@ -354,6 +354,7 @@ open class BrowserActivity : AppCompatActivity() {
             this@BrowserActivity.searchTemplate = searchTemplate
             this@BrowserActivity.cursorSpeedSetting = cursorSpeed
             this@BrowserActivity.directNav = directNav
+            this@BrowserActivity.globalDirectNav = directNav
             this@BrowserActivity.hintShownAlready = firstRunHintShown
             this@BrowserActivity.siteBrowsingSettings = siteBrowsingSettings
             AdBlocker.networkEnabled = blockNetwork
@@ -763,6 +764,9 @@ open class BrowserActivity : AppCompatActivity() {
                 add(getString(R.string.menu_about) to ::showDiagnostics)
                 add(getString(R.string.menu_update) to { checkForUpdates(manual = true) })
             }
+            if (siteControlsHost() != null) {
+                add(if (isIncognito) 0 else 1, getString(R.string.menu_this_site) to ::showSiteControls)
+            }
         }
         AlertDialog.Builder(this)
             .setTitle(if (isIncognito) R.string.incognito_title else R.string.action_menu)
@@ -788,6 +792,7 @@ open class BrowserActivity : AppCompatActivity() {
             useWideViewPort = resolved.useWideViewPort,
             loadWithOverviewMode = resolved.loadWithOverviewMode
         )
+        browser.setTextZoom(SiteBrowsingPolicy.textZoomForHost(siteBrowsingSettings, host))
         if (::tabManager.isInitialized && tabManager.hasTabs && browser === tabManager.activeEngine) {
             activeBrowsingSettings = resolved
         }
@@ -1275,16 +1280,6 @@ open class BrowserActivity : AppCompatActivity() {
         val dlg = DialogSettingsBinding.inflate(layoutInflater)
         dlg.switchDesktop.isChecked = desktopMode
 
-        val siteModeLabels = arrayOf(
-            getString(R.string.settings_mode_default),
-            getString(R.string.settings_mode_mobile_tv),
-            getString(R.string.settings_mode_desktop)
-        )
-        val siteModeAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, siteModeLabels)
-        siteModeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        dlg.spinnerSiteIdentity.adapter = siteModeAdapter
-        dlg.spinnerSiteViewport.adapter = siteModeAdapter
-
         val searchAdapter = ArrayAdapter.createFromResource(
             this, R.array.search_engine_labels, android.R.layout.simple_spinner_item
         )
@@ -1296,7 +1291,7 @@ open class BrowserActivity : AppCompatActivity() {
         dlg.switchBlockCosmetic.isChecked = AdBlocker.cosmeticEnabled
         dlg.switchBlockPopups.isChecked = AdBlocker.popupEnabled
         dlg.switchBlockRedirects.isChecked = AdBlocker.redirectBlockEnabled
-        dlg.switchDirectNav.isChecked = directNav
+        dlg.switchDirectNav.isChecked = globalDirectNav
         dlg.seekCursorSpeed.progress = (cursorSpeedSetting - 1).coerceIn(0, 4)
         dlg.switchDesktop.contentDescription = getString(R.string.settings_desktop)
         dlg.spinnerSearch.contentDescription = getString(R.string.settings_search)
@@ -1306,25 +1301,6 @@ open class BrowserActivity : AppCompatActivity() {
         dlg.switchBlockRedirects.contentDescription = getString(R.string.settings_block_redirects)
         dlg.switchDirectNav.contentDescription = getString(R.string.settings_direct_nav)
         dlg.seekCursorSpeed.contentDescription = getString(R.string.settings_cursor_speed)
-
-        val host = currentHost
-        val storedSiteSettings = SiteBrowsingPolicy.settingsForHost(siteBrowsingSettings, host)
-            ?: SiteBrowsingSettings()
-        dlg.spinnerSiteIdentity.setSelection(storedSiteSettings.identity.ordinal)
-        dlg.spinnerSiteViewport.setSelection(storedSiteSettings.viewport.ordinal)
-        dlg.spinnerSiteIdentity.isEnabled = host != null
-        dlg.spinnerSiteViewport.isEnabled = host != null
-        dlg.siteBrowsingLabel.text = if (host != null) {
-            getString(R.string.settings_site_browsing_host, host)
-        } else getString(R.string.settings_site_browsing)
-        dlg.spinnerSiteIdentity.contentDescription = getString(R.string.settings_site_identity)
-        dlg.spinnerSiteViewport.contentDescription = getString(R.string.settings_site_viewport)
-        dlg.switchAllowSite.isEnabled = host != null
-        dlg.switchAllowSite.isChecked = AdBlocker.isAllowlisted(host)
-        dlg.allowSiteLabel.text =
-            if (host != null) getString(R.string.settings_allow_site_host, host)
-            else getString(R.string.settings_allow_site)
-        dlg.switchAllowSite.contentDescription = dlg.allowSiteLabel.text
 
         AlertDialog.Builder(this)
             .setTitle(R.string.settings_title)
@@ -1339,34 +1315,13 @@ open class BrowserActivity : AppCompatActivity() {
                 AdBlocker.cosmeticEnabled = dlg.switchBlockCosmetic.isChecked
                 AdBlocker.popupEnabled = dlg.switchBlockPopups.isChecked
                 AdBlocker.redirectBlockEnabled = dlg.switchBlockRedirects.isChecked
-                directNav = dlg.switchDirectNav.isChecked
+                globalDirectNav = dlg.switchDirectNav.isChecked
+                directNav = SiteBrowsingPolicy.directNavForHost(siteBrowsingSettings, currentHost, globalDirectNav)
                 cursorSpeedSetting = dlg.seekCursorSpeed.progress + 1
                 cursor.speedFactor = speedFactor(cursorSpeedSetting)
                 tabManager.forEachEngine {
                     it.setBlockingEnabled(AdBlocker.networkEnabled)
                     it.applyPopupPolicy()
-                }
-
-                val allowChecked = dlg.switchAllowSite.isChecked
-                val newSiteSettings = SiteBrowsingSettings(
-                    identity = BrowsingIdentity.entries[dlg.spinnerSiteIdentity.selectedItemPosition],
-                    viewport = BrowsingViewport.entries[dlg.spinnerSiteViewport.selectedItemPosition]
-                )
-                if (host != null) {
-                    if (allowChecked) AdBlocker.setAllowlist(AdBlocker.currentAllowlist() + host)
-                    else {
-                        val covering = AdBlocker.coveringEntries(AdBlocker.currentAllowlist(), host)
-                        AdBlocker.setAllowlist(AdBlocker.currentAllowlist() - covering)
-                        covering.filter { it != host }.minByOrNull { it.length }?.let { parent ->
-                            Toast.makeText(
-                                this, getString(R.string.allowlist_parent_removed, parent), Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                    }
-                    tabManager.forEachEngine { it.applyPopupPolicy() }
-                    siteBrowsingSettings = siteBrowsingSettings.toMutableMap().apply {
-                        if (newSiteSettings.isDefault) remove(host) else put(host, newSiteSettings)
-                    }
                 }
 
                 lifecycleScope.launch {
@@ -1376,10 +1331,8 @@ open class BrowserActivity : AppCompatActivity() {
                     settings.setBlockCosmetic(AdBlocker.cosmeticEnabled)
                     settings.setBlockPopups(AdBlocker.popupEnabled)
                     settings.setBlockRedirects(AdBlocker.redirectBlockEnabled)
-                    settings.setDirectNav(directNav)
+                    settings.setDirectNav(globalDirectNav)
                     settings.setCursorSpeed(cursorSpeedSetting)
-                    if (host != null) settings.setSiteAllowlisted(host, allowChecked)
-                    if (host != null) settings.setSiteBrowsingSettings(host, newSiteSettings)
                 }
 
                 tabManager.forEachEngine { browser ->
@@ -1403,6 +1356,100 @@ open class BrowserActivity : AppCompatActivity() {
         AdBlocker.networkEnabled, AdBlocker.cosmeticEnabled, AdBlocker.popupEnabled,
         AdBlocker.redirectBlockEnabled, AdBlocker.currentAllowlist()
     )
+
+    /** The host the "This site" panel applies to: only a real web page, not home, an error page or a blank tab. */
+    private fun siteControlsHost(): String? {
+        if (!::tabManager.isInitialized || !tabManager.hasTabs || homeVisible || currentFailure != null) return null
+        val url = engine.currentUrl() ?: return null
+        if (!url.startsWith("http://", true) && !url.startsWith("https://", true)) return null
+        return AdBlocker.hostOf(url)
+    }
+
+    private fun showSiteControls() {
+        val host = siteControlsHost() ?: return
+        SiteControlsDialog(
+            context = this,
+            host = host,
+            incognito = isIncognito,
+            stored = SiteBrowsingPolicy.settingsForHost(siteBrowsingSettings, host) ?: SiteBrowsingSettings(),
+            allowAds = AdBlocker.isAllowlisted(host),
+            paused = AdBlocker.exceptions.pausedLayers(host),
+            blocked = engine.recentBlocked(),
+            listener = object : SiteControlsDialog.Listener {
+                override fun onApply(result: SiteControlsDialog.Result) = applySiteControls(host, result)
+                override fun onReload() = engine.reload()
+                override fun onReset() {
+                    applySiteControls(host, SiteControlsDialog.Result(SiteBrowsingSettings(), false, emptySet()))
+                    Toast.makeText(
+                        this@BrowserActivity, getString(R.string.site_reset_done, host), Toast.LENGTH_SHORT
+                    ).show()
+                }
+                override fun onDiagnostics() = showDiagnostics()
+            }
+        ).show()
+    }
+
+    /**
+     * Applies the "This site" panel for [host]. Pauses stay in memory; the saved settings are
+     * skipped in a private tab, which never writes to disk. Only tabs on the host are reloaded.
+     */
+    private fun applySiteControls(host: String, result: SiteControlsDialog.Result) {
+        val allowedBefore = AdBlocker.isAllowlisted(host)
+        val pausedBefore = AdBlocker.exceptions.pausedLayers(host)
+        AdBlocker.exceptions.setPausedLayers(host, result.paused)
+        if (!isIncognito) {
+            val allowChanged = result.allowAds != allowedBefore
+            if (allowChanged && result.allowAds) {
+                AdBlocker.setAllowlist(AdBlocker.currentAllowlist() + host)
+            } else if (allowChanged) {
+                val covering = AdBlocker.coveringEntries(AdBlocker.currentAllowlist(), host)
+                AdBlocker.setAllowlist(AdBlocker.currentAllowlist() - covering)
+                covering.filter { it != host }.minByOrNull { it.length }?.let { parent ->
+                    Toast.makeText(
+                        this, getString(R.string.allowlist_parent_removed, parent), Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+            val key = SiteBrowsingPolicy.normalizeHost(host)
+            if (key != null) {
+                siteBrowsingSettings = siteBrowsingSettings.toMutableMap().apply {
+                    if (result.settings.isDefault) remove(key) else put(key, result.settings)
+                }
+            }
+            lifecycleScope.launch {
+                if (allowChanged) settings.setSiteAllowlisted(host, result.allowAds)
+                if (key != null) settings.setSiteBrowsingSettings(key, result.settings)
+            }
+        }
+        tabManager.forEachEngine { browser ->
+            browser.applyPopupPolicy()
+            applyBrowsingSettings(browser, AdBlocker.hostOf(browser.currentUrl()))
+        }
+        syncRemoteMode(currentHost)
+        if (result.allowAds != allowedBefore || result.paused != pausedBefore) reloadSiteTabs(host)
+    }
+
+    /** Reload the tabs showing [host] or one of its subdomains, the reach of an allowlist or pause. */
+    private fun reloadSiteTabs(host: String) {
+        tabManager.forEachEngine { browser ->
+            val tabHost = AdBlocker.hostOf(browser.currentUrl())
+            if (tabHost != null && AdBlocker.covers(host, tabHost)) browser.reload()
+        }
+    }
+
+    /** Switch cursor / direct navigation to what [host] asks for, leaving focus alone in the toolbar. */
+    private fun syncRemoteMode(host: String?) {
+        val wanted = SiteBrowsingPolicy.directNavForHost(siteBrowsingSettings, host, globalDirectNav)
+        if (wanted == directNav) return
+        directNav = wanted
+        if (!tabManager.hasTabs || homeVisible || currentFailure != null || binding.urlBar.hasFocus()) return
+        if (wanted && cursor.active) {
+            cursor.setActive(false)
+            engine.view.requestFocus()
+        } else if (!wanted && !cursor.active && engine.view.hasFocus()) {
+            setCursor(true)
+        }
+    }
 
     /**
      * In cursor mode the D-pad drives the on-screen pointer instead of moving focus.
@@ -1739,6 +1786,8 @@ open class BrowserActivity : AppCompatActivity() {
                     resolved.loadWithOverviewMode
                 )
             }
+            engine.setTextZoom(SiteBrowsingPolicy.textZoomForHost(siteBrowsingSettings, currentHost))
+            syncRemoteMode(currentHost)
             if (!binding.urlBar.hasFocus() && url != "about:blank") {
                 binding.urlBar.setText(url)
             }

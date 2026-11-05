@@ -10,6 +10,7 @@ import android.webkit.PermissionRequest
 import android.webkit.SslErrorHandler
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
+import com.tdarby.comet.adblock.BlockedLog
 
 /** Remote media-key actions routed into the page's <video>/<audio>. */
 enum class MediaAction { PLAY_PAUSE, PLAY, PAUSE, STOP, REWIND, FORWARD }
@@ -102,6 +103,12 @@ interface BrowserEngine {
     /** Pinch-free zoom for a 10-foot UI (driven from the menu / remote). */
     fun zoomIn() {}
     fun zoomOut() {}
+
+    /** Text size in percent, separate from [zoomIn]/[zoomOut] page zoom (100 = the page's own size). */
+    fun setTextZoom(percent: Int) {}
+
+    /** What the blocking layers recently stopped on this tab's current page, newest first. */
+    fun recentBlocked(): List<BlockedLog.Entry> = emptyList()
 
     /** Route a remote media key into the page's media elements. */
     fun mediaAction(action: MediaAction) {}
