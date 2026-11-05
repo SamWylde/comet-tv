@@ -77,6 +77,8 @@ import com.tdarby.comet.engine.MediaKeys
 import com.tdarby.comet.engine.PageFailure
 import com.tdarby.comet.engine.PageFailureKind
 import com.tdarby.comet.input.CursorController
+import com.tdarby.comet.input.RemoteAction
+import com.tdarby.comet.input.RemoteShortcuts
 import com.tdarby.comet.input.RemoteExitPolicy
 import com.tdarby.comet.input.RemoteKey
 import com.tdarby.comet.permission.PermissionDecision
@@ -108,6 +110,13 @@ open class BrowserActivity : AppCompatActivity() {
     private lateinit var tabsStore: TabsStore
     private lateinit var tabManager: TabManager
     private lateinit var cursor: CursorController
+
+    /** User-assigned remote-button shortcuts (loaded at startup, edited in Settings). */
+    private var remoteShortcuts = RemoteShortcuts.EMPTY
+
+    /** True while the active tab loads: the Reload button then shows Stop. */
+    private var pageLoading = false
+    private var loadingEngine: BrowserEngine? = null
 
     /** Pending `<input type=file>` callback while the system picker is open. */
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
@@ -367,6 +376,9 @@ open class BrowserActivity : AppCompatActivity() {
             if (::tabManager.isInitialized && tabManager.hasTabs) tabManager.activeEngine.view else null
         }
         cursor.speedFactor = speedFactor(cursorSpeedSetting)
+        lifecycleScope.launch {
+            remoteShortcuts = RemoteShortcuts.fromJson(settings.remoteShortcutsJsonNow())
+        }
         tabManager = TabManager(
             container = binding.engineContainer,
             homeUrl = HOME_URL,
@@ -507,7 +519,13 @@ open class BrowserActivity : AppCompatActivity() {
     private fun wireChrome() = with(binding) {
         btnBack.setOnClickListener { if (engine.canGoBack()) engine.goBack() }
         btnForward.setOnClickListener { if (engine.canGoForward()) engine.goForward() }
-        btnReload.setOnClickListener { engine.reload() }
+        btnReload.setOnClickListener {
+            if (pageLoading) {
+                engine.stop()
+                setLoadingUi(false)
+                progress.visibility = View.GONE
+            } else engine.reload()
+        }
         btnGo.setOnClickListener { navigateFromBar() }
         btnCursor.setOnClickListener { setCursor(!cursor.active) }
         btnVoice.setOnClickListener { launchVoiceSearch() }
@@ -598,6 +616,7 @@ open class BrowserActivity : AppCompatActivity() {
     }
 
     private fun showErrorPanel(failure: PageFailure) {
+        setLoadingUi(false)
         currentFailure = failure
         homeVisible = false
         if (binding.errorPanel.visibility != View.VISIBLE) cursorWasOnBeforeError = cursor.active
@@ -754,6 +773,9 @@ open class BrowserActivity : AppCompatActivity() {
             getString(R.string.menu_zoom_in) to { engine.zoomIn() },
             getString(R.string.menu_zoom_out) to { engine.zoomOut() }
             ))
+            add(getString(R.string.menu_link_options) to ::showLinkOptionsAtCursor)
+            add(getString(R.string.menu_drag_mode) to ::startDragMode)
+            add(getString(R.string.menu_remote_help) to ::showRemoteHelp)
             if (!isIncognito) {
                 add(3, getString(R.string.menu_history) to ::showHistory)
                 add(getString(if (bookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark) to
@@ -901,6 +923,8 @@ open class BrowserActivity : AppCompatActivity() {
 
     private fun onTabsChanged() {
         currentFailure?.takeIf { it.url != tabManager.activeUrl() }?.let { hideErrorPanel() }
+        cursor.cancelDragIfTargetChanged()
+        if (pageLoading && (!tabManager.hasTabs || loadingEngine !== engine)) setLoadingUi(false)
         refreshTabStrip()
         persistTabs()
         syncHomeVisibility()
@@ -1306,6 +1330,7 @@ open class BrowserActivity : AppCompatActivity() {
         dlg.switchBlockRedirects.contentDescription = getString(R.string.settings_block_redirects)
         dlg.switchDirectNav.contentDescription = getString(R.string.settings_direct_nav)
         dlg.seekCursorSpeed.contentDescription = getString(R.string.settings_cursor_speed)
+        dlg.btnRemoteButtons.setOnClickListener { showRemoteShortcuts() }
 
         val host = currentHost
         val storedSiteSettings = SiteBrowsingPolicy.settingsForHost(siteBrowsingSettings, host)
@@ -1431,6 +1456,13 @@ open class BrowserActivity : AppCompatActivity() {
         // In fullscreen video, let the now-focused player view handle D-pad/OK natively.
         if (isFullscreen) return super.dispatchKeyEvent(event)
         if (binding.tabSwitcherOverlay.visibility == View.VISIBLE) return super.dispatchKeyEvent(event)
+        // User-assigned remote buttons; never while typing or dragging.
+        if (!cursor.inDragMode && currentFocus !is EditText) {
+            remoteShortcuts.actionFor(event.keyCode)?.let { action ->
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) runRemoteAction(action)
+                return true
+            }
+        }
         if (event.keyCode == KeyEvent.KEYCODE_SEARCH) {
             if (event.action == KeyEvent.ACTION_UP) launchVoiceSearch()
             return true
@@ -1495,7 +1527,7 @@ open class BrowserActivity : AppCompatActivity() {
                 if (event.action == KeyEvent.ACTION_DOWN) {
                     // At the very top of the page, one more UP leaves the page and focuses the
                     // address bar — an always-available way back to the URL (besides long-press OK).
-                    if (cursor.atTopEdge() && engine.verticalScrollOffset() <= 0) {
+                    if (!cursor.inDragMode && cursor.atTopEdge() && engine.verticalScrollOffset() <= 0) {
                         setCursor(false)
                     } else if (event.repeatCount == 0) {
                         cursor.startMove(0, -1)
@@ -1527,7 +1559,7 @@ open class BrowserActivity : AppCompatActivity() {
                     KeyEvent.ACTION_DOWN -> {
                         cursor.stopMove()
                         if (event.repeatCount == 0) centerLongHandled = false
-                        if (event.repeatCount == 1) { // first auto-repeat ≈ long press
+                        if (event.repeatCount == 1 && !cursor.inDragMode) { // first auto-repeat ≈ long press
                             centerLongHandled = true
                             onCursorLongPress()
                         }
@@ -1587,6 +1619,158 @@ open class BrowserActivity : AppCompatActivity() {
             .show()
     }
 
+    // --- w7-input: Stop while loading, remote buttons, drag mode, help, link options ---
+
+    private fun setLoadingUi(loading: Boolean) {
+        val changed = pageLoading != loading
+        pageLoading = loading
+        loadingEngine = if (loading && ::tabManager.isInitialized && tabManager.hasTabs) engine else null
+        if (!changed) return
+        // Same view, new icon: focus stays on the button.
+        binding.btnReload.setImageResource(if (loading) R.drawable.ic_stop else R.drawable.ic_reload)
+        binding.btnReload.contentDescription =
+            getString(if (loading) R.string.action_stop else R.string.action_reload)
+    }
+
+    /** One dispatcher for remote-button shortcuts: adding an action is one line here. */
+    private fun runRemoteAction(action: RemoteAction) {
+        when (action) {
+            RemoteAction.MENU -> showMenu()
+            RemoteAction.TABS -> showTabSwitcher()
+            RemoteAction.HOME -> showHome()
+            RemoteAction.BOOKMARKS -> showBookmarks()
+            RemoteAction.HISTORY -> if (!isIncognito) showHistory()
+            RemoteAction.DOWNLOADS -> showDownloads()
+            RemoteAction.NEW_TAB -> openNewTab()
+            RemoteAction.CLOSE_TAB -> tabManager.closeActive()
+            RemoteAction.RELOAD -> engine.reload()
+            RemoteAction.VOICE_SEARCH -> launchVoiceSearch()
+            RemoteAction.TOGGLE_CURSOR -> setCursor(!cursor.active)
+            RemoteAction.ZOOM_IN -> engine.zoomIn()
+            RemoteAction.ZOOM_OUT -> engine.zoomOut()
+            RemoteAction.BACK -> if (engine.canGoBack()) engine.goBack()
+            RemoteAction.FORWARD -> if (engine.canGoForward()) engine.goForward()
+            RemoteAction.SETTINGS -> if (!isIncognito) showSettings()
+            RemoteAction.HELP -> showRemoteHelp()
+        }
+    }
+
+    private fun keyLabel(keyCode: Int): String =
+        KeyEvent.keyCodeToString(keyCode).removePrefix("KEYCODE_").replace('_', ' ')
+
+    private fun shortcutLine(keyCode: Int, action: RemoteAction): String =
+        getString(R.string.remote_buttons_saved, keyLabel(keyCode), getString(action.labelRes))
+
+    private fun saveRemoteShortcuts(updated: RemoteShortcuts) {
+        remoteShortcuts = updated
+        lifecycleScope.launch { settings.setRemoteShortcutsJson(updated.toJson()) }
+    }
+
+    private fun showRemoteShortcuts() {
+        val entries = remoteShortcuts.entries
+        val labels = (listOf(getString(R.string.remote_buttons_add)) +
+            entries.map { shortcutLine(it.first, it.second) }).toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.remote_buttons_title)
+            .setItems(labels) { _, which ->
+                if (which == 0) captureRemoteKey() else confirmRemoveShortcut(entries[which - 1])
+            }
+            .setNegativeButton(R.string.action_close, null)
+            .show()
+    }
+
+    /** Wait for the user to press the remote button to assign. */
+    private fun captureRemoteKey() {
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.remote_buttons_add)
+            .setMessage(R.string.remote_buttons_press)
+            .setNegativeButton(R.string.action_cancel) { _, _ -> showRemoteShortcuts() }
+            .setOnCancelListener { showRemoteShortcuts() }
+            .create()
+        dialog.setOnKeyListener { d, keyCode, event ->
+            // Keys that can't be assigned (OK, BACK, ...) keep their normal job in this dialog.
+            if (!RemoteShortcuts.isAssignable(keyCode)) return@setOnKeyListener false
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                d.dismiss()
+                chooseRemoteAction(keyCode)
+            }
+            true
+        }
+        dialog.show()
+    }
+
+    private fun chooseRemoteAction(keyCode: Int) {
+        val actions = RemoteAction.entries
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.remote_buttons_choose_action, keyLabel(keyCode)))
+            .setItems(actions.map { getString(it.labelRes) }.toTypedArray()) { _, which ->
+                remoteShortcuts.with(keyCode, actions[which])?.let { saveRemoteShortcuts(it) }
+                Toast.makeText(this, shortcutLine(keyCode, actions[which]), Toast.LENGTH_SHORT).show()
+                showRemoteShortcuts()
+            }
+            .setNegativeButton(R.string.action_cancel) { _, _ -> showRemoteShortcuts() }
+            .setOnCancelListener { showRemoteShortcuts() }
+            .show()
+    }
+
+    private fun confirmRemoveShortcut(entry: Pair<Int, RemoteAction>) {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.remote_buttons_remove_title)
+            .setMessage(shortcutLine(entry.first, entry.second))
+            .setPositiveButton(R.string.remote_buttons_remove) { _, _ ->
+                saveRemoteShortcuts(remoteShortcuts.without(entry.first))
+                showRemoteShortcuts()
+            }
+            .setNegativeButton(R.string.action_cancel) { _, _ -> showRemoteShortcuts() }
+            .setOnCancelListener { showRemoteShortcuts() }
+            .show()
+    }
+
+    /** The first-run explanation again, plus the user's remote-button shortcuts. */
+    private fun showRemoteHelp() {
+        val shortcuts = if (remoteShortcuts.isEmpty) {
+            getString(R.string.remote_help_no_shortcuts)
+        } else {
+            getString(R.string.remote_help_shortcuts) + "\n" +
+                remoteShortcuts.entries.joinToString("\n") { "• " + shortcutLine(it.first, it.second) }
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.hint_title)
+            .setMessage(getString(R.string.hint_body) + "\n\n" + shortcuts)
+            .setPositiveButton(R.string.hint_got_it, null)
+            .show()
+    }
+
+    /** Menu entry: turn the cursor on and arm drag mode (OK picks up, OK drops, BACK cancels). */
+    private fun startDragMode() {
+        if (!tabManager.hasTabs || homeVisible || binding.errorPanel.visibility == View.VISIBLE) {
+            toast(R.string.drag_needs_page)
+            return
+        }
+        setCursor(true)
+        cursor.startDragMode()
+    }
+
+    /** Menu entry: the long-press hit test at the cursor, for remotes that send no long-press. */
+    private fun showLinkOptionsAtCursor() {
+        if (!tabManager.hasTabs || homeVisible || binding.errorPanel.visibility == View.VISIBLE) {
+            toast(R.string.link_options_none)
+            return
+        }
+        if (!cursor.active) {
+            setCursor(true)
+            toast(R.string.link_options_place_cursor)
+            return
+        }
+        engine.hitTestAt(cursor.pxX(), cursor.pxY()) { href, img, _ ->
+            runOnUiThread {
+                if (href == null && img == null) toast(R.string.link_options_none)
+                else showLinkContextMenu(href, img)
+            }
+        }
+    }
+
+
     private fun copyToClipboard(text: String) {
         val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
         cm.setPrimaryClip(android.content.ClipData.newPlainText("url", text))
@@ -1613,6 +1797,7 @@ open class BrowserActivity : AppCompatActivity() {
                     return
                 }
                 when {
+                    cursor.inDragMode -> { resetExitSequence(); cursor.cancelDrag() }
                     binding.tabSwitcherOverlay.visibility == View.VISIBLE -> {
                         resetExitSequence(); dismissTabSwitcher()
                     }
@@ -1696,6 +1881,7 @@ open class BrowserActivity : AppCompatActivity() {
 
     private val callbacks = object : EngineCallbacks {
         override fun onPageStarted(url: String) {
+            setLoadingUi(true)
             hideErrorPanel()
             if (url != HOME_URL) hideHome()
         }
@@ -1720,6 +1906,7 @@ open class BrowserActivity : AppCompatActivity() {
         }
 
         override fun onProgressChanged(progress: Int) {
+            setLoadingUi(progress in 1..99)
             binding.progress.progress = progress
             binding.progress.visibility = if (progress in 1..99) View.VISIBLE else View.GONE
         }
@@ -1762,6 +1949,7 @@ open class BrowserActivity : AppCompatActivity() {
         }
 
         override fun onPageFinished(url: String) {
+            setLoadingUi(false)
             if (!isIncognito) store.recordVisit(engine.currentTitle() ?: url, url)
         }
 
@@ -1879,6 +2067,7 @@ open class BrowserActivity : AppCompatActivity() {
         @Suppress("DEPRECATION") // Legacy flag complements Insets on older/vendor TV builds.
         override fun onEnterFullscreen(fullscreenView: View, onExit: () -> Unit) {
             cursor.stopMove()
+            cursor.cancelDrag()
             isFullscreen = true
             exitFullscreen = onExit
             // Providers normally hand us a detached view, but some keep it attached. Always move
@@ -1956,8 +2145,13 @@ open class BrowserActivity : AppCompatActivity() {
         if (::tabManager.isInitialized) tabManager.onResume()
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus && ::cursor.isInitialized) cursor.cancelDrag()
+    }
+
     override fun onPause() {
-        if (::cursor.isInitialized) cursor.stopMove()
+        if (::cursor.isInitialized) { cursor.stopMove(); cursor.cancelDrag() }
         persistTabs()
         if (::tabManager.isInitialized) tabManager.onPause()
         super.onPause()

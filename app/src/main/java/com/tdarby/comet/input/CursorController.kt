@@ -3,11 +3,15 @@ package com.tdarby.comet.input
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.graphics.Color
+import android.graphics.PorterDuff
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.Choreographer
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.TextView
 import com.tdarby.comet.R
 import kotlin.math.min
 
@@ -40,6 +44,33 @@ class CursorController(
     var active: Boolean = false
         private set
 
+    // Drag mode: DragGesture decides which touch event to send; the view that got DOWN also gets
+    // UP/CANCEL, so a pointer can never stay pressed on a tab that is no longer shown.
+    private val drag = DragGesture()
+    private var dragTarget: View? = null
+    private var dragDownTime = 0L
+
+    private val dragBanner = TextView(container.context).apply {
+        layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+        ).apply { bottomMargin = dp(24) }
+        setTextColor(Color.WHITE)
+        setBackgroundColor(0xE6000000.toInt())
+        setPadding(dp(16), dp(8), dp(16), dp(8))
+        textSize = 18f
+        visibility = View.GONE
+        elevation = 1000f
+        isClickable = false
+        isFocusable = false
+    }
+
+    /** True from "Drag mode" until the drop or cancel. */
+    val inDragMode: Boolean get() = drag.state != DragGesture.State.OFF
+
+    /** True once a cursor position exists (it survives the cursor being switched off). */
+    val hasPosition: Boolean get() = x >= 0f && y >= 0f
+
     /** Cursor movement multiplier (driven by the Settings slider). */
     var speedFactor: Float = 1f
 
@@ -71,9 +102,11 @@ class CursorController(
 
     init {
         container.addView(pointer)
+        container.addView(dragBanner)
     }
 
     fun setActive(value: Boolean) {
+        if (!value) cancelDrag()
         active = value
         if (value) {
             if (x < 0f || y < 0f) center()
@@ -91,7 +124,66 @@ class CursorController(
         if (!active) return
         pointer.visibility = View.VISIBLE
         hideHandler.removeCallbacks(hideRunnable)
-        hideHandler.postDelayed(hideRunnable, AUTO_HIDE_MS)
+        if (!inDragMode) hideHandler.postDelayed(hideRunnable, AUTO_HIDE_MS)
+    }
+
+    /** Enter drag mode at the current cursor position. Needs an active cursor. */
+    fun startDragMode() {
+        if (!active) return
+        cancelDrag()
+        drag.enter()
+        dragTarget = targetProvider()
+        showDragState()
+        bumpVisibility()
+    }
+
+    /** Leave drag mode from any state; a pressed pointer is cancelled. Safe to call at any time. */
+    fun cancelDrag() {
+        if (!inDragMode) return
+        emit(drag.cancel())
+        endDrag()
+    }
+
+    /** Cancel when the page under the cursor is no longer the one the drag started on. */
+    fun cancelDragIfTargetChanged() {
+        if (inDragMode && targetProvider() !== dragTarget) cancelDrag()
+    }
+
+    private fun endDrag() {
+        dragTarget = null
+        showDragState()
+    }
+
+    private fun showDragState() {
+        when (drag.state) {
+            DragGesture.State.OFF -> {
+                pointer.clearColorFilter()
+                dragBanner.visibility = View.GONE
+            }
+            DragGesture.State.ARMED -> {
+                pointer.setColorFilter(DRAG_ARMED_COLOR, PorterDuff.Mode.SRC_ATOP)
+                dragBanner.setText(R.string.drag_banner_armed)
+                dragBanner.visibility = View.VISIBLE
+            }
+            DragGesture.State.DRAGGING -> {
+                pointer.setColorFilter(DRAG_ACTIVE_COLOR, PorterDuff.Mode.SRC_ATOP)
+                dragBanner.setText(R.string.drag_banner_dragging)
+                dragBanner.visibility = View.VISIBLE
+            }
+        }
+    }
+
+    private fun emit(event: DragGesture.Emit?) {
+        event ?: return
+        val target = dragTarget ?: return
+        val now = SystemClock.uptimeMillis()
+        val action = when (event) {
+            DragGesture.Emit.DOWN -> { dragDownTime = now; MotionEvent.ACTION_DOWN }
+            DragGesture.Emit.MOVE -> MotionEvent.ACTION_MOVE
+            DragGesture.Emit.UP -> MotionEvent.ACTION_UP
+            DragGesture.Emit.CANCEL -> MotionEvent.ACTION_CANCEL
+        }
+        dispatch(target, action, x, y, dragDownTime, now)
     }
 
     /** Analog (gamepad/joystick) cursor movement; [dx]/[dy] are −1..1 stick deflections. */
@@ -105,11 +197,14 @@ class CursorController(
         val edge = dp(2).toFloat()
         val sx = dx * dp(ANALOG_STEP) * speedFactor
         val sy = dy * dp(ANALOG_STEP) * speedFactor
-        if (sy < 0 && y <= edge) scroll(0f, 1f, 4) else if (sy > 0 && y >= maxY - edge) scroll(0f, -1f, 4)
-        if (sx < 0 && x <= edge) scroll(1f, 0f, 4) else if (sx > 0 && x >= maxX - edge) scroll(-1f, 0f, 4)
+        if (!inDragMode) {
+            if (sy < 0 && y <= edge) scroll(0f, 1f, 4) else if (sy > 0 && y >= maxY - edge) scroll(0f, -1f, 4)
+            if (sx < 0 && x <= edge) scroll(1f, 0f, 4) else if (sx > 0 && x >= maxX - edge) scroll(-1f, 0f, 4)
+        }
         x = (x + sx).coerceIn(0f, maxX)
         y = (y + sy).coerceIn(0f, maxY)
         updatePointer()
+        if (inDragMode) emit(drag.moved())
         bumpVisibility()
     }
 
@@ -157,7 +252,7 @@ class CursorController(
         val edge = dp(2).toFloat()
 
         val now = SystemClock.uptimeMillis()
-        if (now - lastEdgeScrollMs >= EDGE_SCROLL_INTERVAL_MS) {
+        if (!inDragMode && now - lastEdgeScrollMs >= EDGE_SCROLL_INTERVAL_MS) {
             val repeatEquivalent = (heldMs / 50L).toInt()
             if (deltaY < 0 && y <= edge) scroll(0f, 1f, repeatEquivalent)
             else if (deltaY > 0 && y >= maxY - edge) scroll(0f, -1f, repeatEquivalent)
@@ -169,6 +264,7 @@ class CursorController(
         x = (x + deltaX).coerceIn(0f, maxX)
         y = (y + deltaY).coerceIn(0f, maxY)
         updatePointer()
+        if (inDragMode) emit(drag.moved())
         bumpVisibility()
     }
 
@@ -179,8 +275,17 @@ class CursorController(
     fun pxX(): Float = if (x < 0f) 0f else x
     fun pxY(): Float = if (y < 0f) 0f else y
 
-    /** Synthetic tap at the pointer. */
+    /** Synthetic tap at the pointer. In drag mode OK picks up, then drops. */
     fun click() {
+        if (inDragMode) {
+            cancelDragIfTargetChanged()
+            if (inDragMode) {
+                emit(drag.ok())
+                if (drag.state == DragGesture.State.OFF) endDrag() else showDragState()
+                bumpVisibility()
+            }
+            return
+        }
         val target = targetProvider() ?: return
         val now = SystemClock.uptimeMillis()
         dispatch(target, MotionEvent.ACTION_DOWN, x, y, now, now)
@@ -234,5 +339,7 @@ class CursorController(
         const val AUTO_HIDE_MS = 5000L
         const val ANALOG_STEP = 22
         const val EDGE_SCROLL_INTERVAL_MS = 50L
+        const val DRAG_ARMED_COLOR = 0xFFFFC107.toInt()
+        const val DRAG_ACTIVE_COLOR = 0xFFFF5722.toInt()
     }
 }
