@@ -1,10 +1,10 @@
 {
   "webview": {
-    "versionCode": 13,
-    "versionName": "1.1.1",
-    "apkUrl": "https://github.com/SamWylde/comet-tv/releases/download/v1.1.1/app-webview-universal-release.apk",
-    "sha256": "9ad86d356079cf4e701a9b79f5235b541b290532c6447bee60a1d782654ce276",
-    "notes": "Fixes 1.1.0 closing right after it opened. Includes everything from 1.1.0: per-site Mobile/TV and Desktop identity/viewport profiles, an About/Diagnostics support report, isolated private tabs, complete browsing-data deletion, one-time size-limited blob downloads, and origin-scoped camera, microphone, protected-media and location permissions.",
+    "versionCode": 14,
+    "versionName": "1.2.0",
+    "apkUrl": "https://github.com/SamWylde/comet-tv/releases/download/v1.2.0/app-webview-universal-release.apk",
+    "sha256": "9e64be715a742de00ae3c1b720928d44eea08033e4296a2f20c4f01c56593ec2",
+    "notes": "Stability and privacy fixes: private tabs block ads and clear data a closed private session left behind; page downloads save reliably and failed downloads say why; Play and Pause keys work correctly, including in embedded videos; links from other apps open in a new tab without losing your tabs; sites' own error pages show instead of Comet's; settings and tabs are saved safely; ad-block filter updates are checked before use.",
     "required": false
   }
 }
