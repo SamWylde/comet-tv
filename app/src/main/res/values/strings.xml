@@ -212,4 +212,31 @@
     <string name="drag_needs_page">Open a page first.</string>
     <string name="link_options_none">No link or image under the cursor.</string>
     <string name="link_options_place_cursor">Move the cursor onto a link or image, then open Link options again.</string>
+
+    <!-- w3-site: "This site" panel -->
+    <string name="menu_this_site">This site</string>
+    <string name="site_text_size">Text size</string>
+    <string name="site_text_size_value">%1$d%%</string>
+    <string name="site_text_size_default">%1$d%% (default)</string>
+    <string name="site_remote_mode">Remote control</string>
+    <string name="site_remote_global">Use global setting</string>
+    <string name="site_remote_cursor">Cursor</string>
+    <string name="site_remote_direct">Direct navigation</string>
+    <string name="site_pause_title">Pause until Comet closes</string>
+    <string name="site_pause_network">Network blocking</string>
+    <string name="site_pause_cosmetic">Cosmetic filtering</string>
+    <string name="site_pause_popups">Popup blocking</string>
+    <string name="site_pause_redirects">Redirect blocking</string>
+    <string name="site_blocked_title">Blocked on this page</string>
+    <string name="site_blocked_empty">Nothing blocked on this page</string>
+    <string name="site_blocked_layer_network">network</string>
+    <string name="site_blocked_layer_cosmetic">cosmetic</string>
+    <string name="site_blocked_layer_popup">popup</string>
+    <string name="site_blocked_layer_redirect">redirect</string>
+    <string name="site_blocked_line">%1$s  (%2$s)</string>
+    <string name="site_blocked_line_count">%1$s  (%2$s)  x%3$d</string>
+    <string name="site_action_reload">Reload</string>
+    <string name="site_action_reset">Reset this site\'s settings</string>
+    <string name="site_action_diagnostics">Diagnostics</string>
+    <string name="site_reset_done">Settings reset for %s</string>
 </resources>

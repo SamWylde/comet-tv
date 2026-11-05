@@ -21,6 +21,7 @@ import android.webkit.WebView
 import android.widget.Toast
 import com.tdarby.comet.R
 import com.tdarby.comet.adblock.AdBlocker
+import com.tdarby.comet.adblock.BlockedLog
 import com.tdarby.comet.web.BrowserWebChromeClient
 import com.tdarby.comet.web.BrowserWebViewClient
 import com.tdarby.comet.adblock.PopupGuard
@@ -39,6 +40,7 @@ class WebViewEngine(
 ) : BrowserEngine {
 
     private val webView = WebView(context)
+    private val blockedLog = BlockedLog()
     private val ctx = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
     private var popupScript: ScriptHandler? = null
@@ -82,8 +84,8 @@ class WebViewEngine(
         // Third-party cookies are kept on deliberately: embedded video players and SSO logins on
         // streaming sites frequently require them. Trackers are handled by the ad/tracker blocker.
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
-        webView.webViewClient = BrowserWebViewClient(callbacks)
-        webView.webChromeClient = BrowserWebChromeClient(callbacks)
+        webView.webViewClient = BrowserWebViewClient(callbacks, blockedLog)
+        webView.webChromeClient = BrowserWebChromeClient(callbacks, blockedLog)
         webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
             callbacks.onDownloadRequested(url, userAgent, contentDisposition, mimeType)
         }
@@ -265,6 +267,12 @@ class WebViewEngine(
     override fun zoomIn() { webView.zoomIn() }
     override fun zoomOut() { webView.zoomOut() }
 
+    override fun setTextZoom(percent: Int) {
+        if (webView.settings.textZoom != percent) webView.settings.textZoom = percent
+    }
+
+    override fun recentBlocked(): List<BlockedLog.Entry> = blockedLog.entries()
+
     override fun hitTestAt(
         xPx: Float,
         yPx: Float,
@@ -355,7 +363,7 @@ class WebViewEngine(
             popupScript = null
             if (AdBlocker.popupEnabled) {
                 popupScript = WebViewCompat.addDocumentStartJavaScript(
-                    webView, PopupGuard.scriptSkippingHosts(AdBlocker.currentAllowlist()), setOf("*")
+                    webView, PopupGuard.scriptSkippingHosts(AdBlocker.popupScriptSkipHosts()), setOf("*")
                 )
             }
         }

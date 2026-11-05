@@ -11,12 +11,15 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.tdarby.comet.adblock.AdBlocker
+import com.tdarby.comet.adblock.BlockLayer
+import com.tdarby.comet.adblock.BlockedLog
 import com.tdarby.comet.adblock.PopupGuard
 import com.tdarby.comet.engine.EngineCallbacks
 
 /** Handles progress, title, and HTML5 fullscreen video for the WebView engine. */
 class BrowserWebChromeClient(
-    private val callbacks: EngineCallbacks
+    private val callbacks: EngineCallbacks,
+    private val blockedLog: BlockedLog = BlockedLog()
 ) : WebChromeClient() {
 
     private var customView: View? = null
@@ -46,7 +49,10 @@ class BrowserWebChromeClient(
             handled = true
             if (PopupGuard.shouldOpenNewTab(isUserGesture, popupBlocking, url)) {
                 callbacks.onOpenInNewTab(requireNotNull(url))
-            } else callbacks.onPopupBlocked(url)
+            } else {
+                blockedLog.record(AdBlocker.hostOf(url), BlockLayer.POPUP)
+                callbacks.onPopupBlocked(url)
+            }
             capture.post { capture.destroy() }
         }
         capture.webViewClient = object : WebViewClient() {

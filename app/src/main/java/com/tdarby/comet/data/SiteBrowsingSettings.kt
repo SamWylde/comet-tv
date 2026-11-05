@@ -18,13 +18,32 @@ enum class BrowsingViewport {
     DESKTOP
 }
 
+/** How the remote drives a site: follow the global toggle, or force cursor / direct navigation. */
+enum class SiteRemoteMode {
+    GLOBAL,
+    CURSOR,
+    DIRECT
+}
+
 /** Exact-host browsing overrides. An all-default value is equivalent to no stored override. */
 data class SiteBrowsingSettings(
     val identity: BrowsingIdentity = BrowsingIdentity.DEFAULT,
-    val viewport: BrowsingViewport = BrowsingViewport.DEFAULT
+    val viewport: BrowsingViewport = BrowsingViewport.DEFAULT,
+    /** Text size in percent (WebSettings.textZoom); [DEFAULT_TEXT_ZOOM] is the page's own size. */
+    val textZoom: Int = DEFAULT_TEXT_ZOOM,
+    val remoteMode: SiteRemoteMode = SiteRemoteMode.GLOBAL
 ) {
     val isDefault: Boolean
-        get() = identity == BrowsingIdentity.DEFAULT && viewport == BrowsingViewport.DEFAULT
+        get() = identity == BrowsingIdentity.DEFAULT && viewport == BrowsingViewport.DEFAULT &&
+            textZoom == DEFAULT_TEXT_ZOOM && remoteMode == SiteRemoteMode.GLOBAL
+
+    companion object {
+        const val DEFAULT_TEXT_ZOOM = 100
+        const val MIN_TEXT_ZOOM = 50
+        const val MAX_TEXT_ZOOM = 300
+        /** Text sizes offered in the "This site" panel. */
+        val TEXT_ZOOM_PRESETS = listOf(85, DEFAULT_TEXT_ZOOM, 115, 130, 150)
+    }
 }
 
 /** Fully resolved, non-default policy that can be applied directly to a browser engine. */
@@ -105,6 +124,21 @@ object SiteBrowsingPolicy {
     ): ResolvedSiteBrowsingSettings =
         resolve(settingsForHost(settingsByHost, host), globalDesktopMode)
 
+    /** Text size for [host]: its stored override, else the page's own size. */
+    fun textZoomForHost(settingsByHost: Map<String, SiteBrowsingSettings>, host: String?): Int =
+        settingsForHost(settingsByHost, host)?.textZoom ?: SiteBrowsingSettings.DEFAULT_TEXT_ZOOM
+
+    /** Whether the remote uses direct navigation on [host]: the site's choice, else [globalDirectNav]. */
+    fun directNavForHost(
+        settingsByHost: Map<String, SiteBrowsingSettings>,
+        host: String?,
+        globalDirectNav: Boolean
+    ): Boolean = when (settingsForHost(settingsByHost, host)?.remoteMode) {
+        SiteRemoteMode.CURSOR -> false
+        SiteRemoteMode.DIRECT -> true
+        SiteRemoteMode.GLOBAL, null -> globalDirectNav
+    }
+
     private const val MAX_HOST_LENGTH = 253
     private const val MAX_LABEL_LENGTH = 63
 }
@@ -131,6 +165,14 @@ internal object SiteBrowsingSettingsJson {
                 appendJsonString(settings.identity.name)
                 append(",\"viewport\":")
                 appendJsonString(settings.viewport.name)
+                // Newer fields are written only when set, so an untouched site's record is unchanged.
+                if (settings.textZoom != SiteBrowsingSettings.DEFAULT_TEXT_ZOOM) {
+                    append(",\"textZoom\":").append(settings.textZoom)
+                }
+                if (settings.remoteMode != SiteRemoteMode.GLOBAL) {
+                    append(",\"remoteMode\":")
+                    appendJsonString(settings.remoteMode.name)
+                }
                 append('}')
             }
             append("]}")
@@ -148,15 +190,22 @@ internal object SiteBrowsingSettingsJson {
             val host = SiteBrowsingPolicy.normalizeHost(item["host"] as? String) ?: return@forEach
             val identity = enumValueOrDefault<BrowsingIdentity>(item["identity"] as? String)
             val viewport = enumValueOrDefault<BrowsingViewport>(item["viewport"] as? String)
-            val settings = SiteBrowsingSettings(identity, viewport)
+            val remoteMode = enumValueOrDefault<SiteRemoteMode>(item["remoteMode"] as? String, "GLOBAL")
+            val textZoom = (item["textZoom"] as? Number)?.toInt()
+                ?.takeIf { it in SiteBrowsingSettings.MIN_TEXT_ZOOM..SiteBrowsingSettings.MAX_TEXT_ZOOM }
+                ?: SiteBrowsingSettings.DEFAULT_TEXT_ZOOM
+            val settings = SiteBrowsingSettings(identity, viewport, textZoom, remoteMode)
             if (!settings.isDefault) result[host] = settings
         }
         return result
     }
 
-    private inline fun <reified T : Enum<T>> enumValueOrDefault(value: String?): T =
+    private inline fun <reified T : Enum<T>> enumValueOrDefault(
+        value: String?,
+        defaultName: String = "DEFAULT"
+    ): T =
         enumValues<T>().firstOrNull { it.name.equals(value, ignoreCase = true) }
-            ?: enumValues<T>().first { it.name == "DEFAULT" }
+            ?: enumValues<T>().first { it.name == defaultName }
 
     private fun StringBuilder.appendJsonString(value: String) {
         append('"')

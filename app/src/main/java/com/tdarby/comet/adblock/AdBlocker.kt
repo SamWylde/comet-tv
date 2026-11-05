@@ -38,6 +38,9 @@ object AdBlocker {
     private var blockedHosts: Set<String> = emptySet()
     private val allowlist = Collections.synchronizedSet(HashSet<String>())
 
+    /** Per-host, in-memory pauses of single layers (the "This site" panel). Never persisted. */
+    val exceptions = SiteExceptions()
+
     @Volatile var loaded: Boolean = false
         private set
 
@@ -84,18 +87,28 @@ object AdBlocker {
     }
 
     /** Popup blocking applies to a page on [host] when the toggle is on and the host isn't allowlisted. */
-    fun popupBlockingActive(host: String?): Boolean = popupEnabled && !isAllowlisted(host)
+    fun popupBlockingActive(host: String?): Boolean =
+        popupEnabled && !isAllowlisted(host) && !exceptions.isPaused(BlockLayer.POPUP, host)
+
+    /** Cosmetic CSS applies to a page on [host] when the toggle is on and neither exception holds. */
+    fun cosmeticActive(host: String?): Boolean =
+        cosmeticEnabled && !isAllowlisted(host) && !exceptions.isPaused(BlockLayer.COSMETIC, host)
+
+    /** Hosts the document-start popup script must skip: the allowlist plus temporary popup pauses. */
+    fun popupScriptSkipHosts(): Set<String> =
+        currentAllowlist() + exceptions.hostsFor(BlockLayer.POPUP)
 
     /** Allowlist entries (the host itself or a parent domain) that make [host] allowlisted. */
     fun coveringEntries(allowlist: Set<String>, host: String): Set<String> =
         allowlist.filterTo(HashSet()) { covers(it, host) }
 
-    private fun covers(entry: String, host: String) = host == entry || host.endsWith(".$entry")
+    internal fun covers(entry: String, host: String) = host == entry || host.endsWith(".$entry")
 
     /** True if a sub-resource [requestUrl] should be blocked given the current [pageHost]. */
     fun shouldBlock(requestUrl: String?, pageHost: String?): Boolean {
         if (!networkEnabled) return false
         if (isAllowlisted(pageHost)) return false
+        if (exceptions.isPaused(BlockLayer.NETWORK, pageHost)) return false
         val host = hostOf(requestUrl) ?: return false
         return isBlockedHost(host)
     }
@@ -107,8 +120,7 @@ object AdBlocker {
      * the per-site allowlist, and matched against the same hostname blocklist as [shouldBlock].
      */
     fun shouldBlockNavigation(targetUrl: String?, pageHost: String?): Boolean {
-        if (!popupEnabled) return false
-        if (isAllowlisted(pageHost)) return false
+        if (!popupBlockingActive(pageHost)) return false
         val host = hostOf(targetUrl) ?: return false
         return isBlockedHost(host)
     }
@@ -124,6 +136,7 @@ object AdBlocker {
         if (!redirectBlockEnabled) return false
         if (pageHost == null) return false
         if (isAllowlisted(pageHost)) return false
+        if (exceptions.isPaused(BlockLayer.REDIRECT, pageHost)) return false
         val targetHost = hostOf(targetUrl) ?: return false
         return registrableDomain(targetHost) != registrableDomain(pageHost)
     }

@@ -15,6 +15,8 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.tdarby.comet.adblock.AdBlocker
+import com.tdarby.comet.adblock.BlockLayer
+import com.tdarby.comet.adblock.BlockedLog
 import com.tdarby.comet.adblock.PopupGuard
 import com.tdarby.comet.engine.EngineCallbacks
 import com.tdarby.comet.engine.PageFailureClassifier
@@ -26,7 +28,8 @@ import com.tdarby.comet.engine.PageFailureClassifier
  *  - cosmetic: injects hiding CSS at page finish.
  */
 class BrowserWebViewClient(
-    private val callbacks: EngineCallbacks
+    private val callbacks: EngineCallbacks,
+    private val blockedLog: BlockedLog = BlockedLog()
 ) : WebViewClient() {
 
     @Volatile
@@ -57,11 +60,13 @@ class BrowserWebViewClient(
         }
         if (AdBlocker.shouldBlockNavigation(url, currentHost)) {
             Log.i(TAG, "Blocked ad-host redirect: $url (from $currentHost)")
+            blockedLog.record(AdBlocker.hostOf(url), BlockLayer.POPUP)
             callbacks.onPopupBlocked(url)
             return true
         }
         if (AdBlocker.shouldBlockRedirect(url, currentHost)) {
             Log.i(TAG, "Blocked cross-site redirect (strict): $url (from $currentHost)")
+            blockedLog.record(AdBlocker.hostOf(url), BlockLayer.REDIRECT)
             callbacks.onPopupBlocked(url)
             return true
         }
@@ -71,6 +76,7 @@ class BrowserWebViewClient(
     override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
         mainFrameUrl = url
         currentHost = AdBlocker.hostOf(url)
+        blockedLog.clear()
         val popupBlocking = AdBlocker.popupBlockingActive(currentHost)
         view.settings.javaScriptCanOpenWindowsAutomatically = !popupBlocking
         if (popupBlocking) view.evaluateJavascript(PopupGuard.JS, null)
@@ -80,7 +86,7 @@ class BrowserWebViewClient(
     }
 
     override fun onPageFinished(view: WebView, url: String) {
-        if (AdBlocker.cosmeticEnabled && !AdBlocker.isAllowlisted(currentHost)) {
+        if (AdBlocker.cosmeticActive(currentHost)) {
             view.evaluateJavascript(AdBlocker.cosmeticJs(), null)
         }
         callbacks.onPageFinished(url)
@@ -98,7 +104,9 @@ class BrowserWebViewClient(
         request: WebResourceRequest
     ): WebResourceResponse? {
         if (request.isForMainFrame) return null
-        return if (AdBlocker.shouldBlock(request.url?.toString(), currentHost)) {
+        val requestUrl = request.url?.toString()
+        return if (AdBlocker.shouldBlock(requestUrl, currentHost)) {
+            blockedLog.record(AdBlocker.hostOf(requestUrl), BlockLayer.NETWORK)
             WebResourceResponse("text/plain", "utf-8", AdBlocker.emptyResponseBody())
         } else {
             null
