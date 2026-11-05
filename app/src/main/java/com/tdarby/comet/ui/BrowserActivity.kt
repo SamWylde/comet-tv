@@ -72,7 +72,7 @@ import com.tdarby.comet.engine.EngineCallbacks
 import com.tdarby.comet.engine.WebViewEngine
 import com.tdarby.comet.data.BrowserStore
 import com.tdarby.comet.data.TabsStore
-import com.tdarby.comet.engine.MediaAction
+import com.tdarby.comet.engine.MediaKeys
 import com.tdarby.comet.engine.PageFailure
 import com.tdarby.comet.engine.PageFailureKind
 import com.tdarby.comet.input.CursorController
@@ -459,6 +459,7 @@ open class BrowserActivity : AppCompatActivity() {
     }
 
     private fun setCursor(active: Boolean) {
+        if (!active) centerLongHandled = false
         cursor.setActive(active)
         if (active && tabManager.hasTabs) {
             addressBarActive = false
@@ -1295,8 +1296,10 @@ open class BrowserActivity : AppCompatActivity() {
         }
 
         // Remote media keys drive the page's <video>/<audio> regardless of cursor/toolbar focus.
-        mediaActionFor(event.keyCode)?.let { action ->
-            if (event.action == KeyEvent.ACTION_DOWN && tabManager.hasTabs) engine.mediaAction(action)
+        if (MediaKeys.isMediaKey(event.keyCode)) {
+            if (event.action == KeyEvent.ACTION_DOWN && tabManager.hasTabs) {
+                MediaKeys.actionFor(event.keyCode, event.repeatCount)?.let { engine.mediaAction(it) }
+            }
             return true
         }
         // In fullscreen video, let the now-focused player view handle D-pad/OK natively.
@@ -1397,6 +1400,7 @@ open class BrowserActivity : AppCompatActivity() {
                 when (event.action) {
                     KeyEvent.ACTION_DOWN -> {
                         cursor.stopMove()
+                        if (event.repeatCount == 0) centerLongHandled = false
                         if (event.repeatCount == 1) { // first auto-repeat ≈ long press
                             centerLongHandled = true
                             onCursorLongPress()
@@ -1429,20 +1433,10 @@ open class BrowserActivity : AppCompatActivity() {
         return super.onGenericMotionEvent(event)
     }
 
-    private fun mediaActionFor(keyCode: Int): MediaAction? = when (keyCode) {
-        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
-        KeyEvent.KEYCODE_MEDIA_PLAY,
-        KeyEvent.KEYCODE_MEDIA_PAUSE -> MediaAction.PLAY_PAUSE
-        KeyEvent.KEYCODE_MEDIA_STOP -> MediaAction.STOP
-        KeyEvent.KEYCODE_MEDIA_REWIND -> MediaAction.REWIND
-        KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> MediaAction.FORWARD
-        else -> null
-    }
-
     /** Long-press OK: show a context menu for a link/image under the cursor, else exit to toolbar. */
     private fun onCursorLongPress() {
         if (!tabManager.hasTabs) { setCursor(false); return }
-        engine.hitTestAt(cursor.cssX(), cursor.cssY()) { href, img, _ ->
+        engine.hitTestAt(cursor.pxX(), cursor.pxY()) { href, img, _ ->
             runOnUiThread {
                 if (href == null && img == null) setCursor(false) else showLinkContextMenu(href, img)
             }

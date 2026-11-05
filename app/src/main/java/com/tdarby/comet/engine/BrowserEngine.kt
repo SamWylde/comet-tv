@@ -12,7 +12,7 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 
 /** Remote media-key actions routed into the page's <video>/<audio>. */
-enum class MediaAction { PLAY_PAUSE, STOP, REWIND, FORWARD }
+enum class MediaAction { PLAY_PAUSE, PLAY, PAUSE, STOP, REWIND, FORWARD }
 
 /**
  * Events an engine raises back to the UI. All methods have no-op defaults so callers only
@@ -108,12 +108,13 @@ interface BrowserEngine {
     fun captureThumbnail(width: Int, height: Int): Bitmap? = null
 
     /**
-     * Resolve the link/image at a CSS-pixel point (the cursor) for a long-press context menu.
-     * Returns (anchor href, image src, anchor text) via [result]; default finds nothing.
+     * Resolve the link/image at a device-pixel point (the cursor) for a long-press context menu;
+     * the engine converts to page CSS pixels. Returns (anchor href, image src, anchor text) via
+     * [result]; default finds nothing.
      */
     fun hitTestAt(
-        xCss: Float,
-        yCss: Float,
+        xPx: Float,
+        yPx: Float,
         result: (href: String?, imageSrc: String?, anchorText: String?) -> Unit
     ) = result(null, null, null)
 
