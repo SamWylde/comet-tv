@@ -29,7 +29,4 @@ object PageFailureClassifier {
         }
         return PageFailure(kind, url, detail)
     }
-
-    fun fromHttp(status: Int, url: String, reason: String): PageFailure =
-        PageFailure(PageFailureKind.HTTP, url, reason, status)
 }

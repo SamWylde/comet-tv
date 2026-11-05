@@ -21,13 +21,6 @@ class PageFailureClassifierTest {
         assertEquals(PageFailureKind.OFFLINE, failure.kind)
     }
 
-    @Test fun preservesHttpStatusAndReason() {
-        val failure = PageFailureClassifier.fromHttp(503, "https://example.test/", "Unavailable")
-        assertEquals(PageFailureKind.HTTP, failure.kind)
-        assertEquals(503, failure.httpStatus)
-        assertEquals("Unavailable", failure.detail)
-    }
-
     private fun classify(code: Int) =
         PageFailureClassifier.fromWebError(code, "https://example.test/", "detail").kind
 }
