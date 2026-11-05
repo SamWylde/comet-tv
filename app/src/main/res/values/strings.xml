@@ -239,4 +239,18 @@
     <string name="site_action_reset">Reset this site\'s settings</string>
     <string name="site_action_diagnostics">Diagnostics</string>
     <string name="site_reset_done">Settings reset for %s</string>
+
+    <!-- w6-handoff: send a link from a phone -->
+    <string name="menu_send_from_phone">Send from phone</string>
+    <string name="handoff_title">Send from phone</string>
+    <string name="handoff_starting">Starting…</string>
+    <string name="handoff_scan">Scan the code with your phone, or open this address and enter the code:</string>
+    <string name="handoff_code">Code: %1$s</string>
+    <string name="handoff_no_network">Can’t start. Connect the TV to Wi-Fi or Ethernet first.</string>
+    <string name="handoff_start_failed">Couldn’t start. Close this and try again.</string>
+    <string name="handoff_ended_expired">This session ended after 10 minutes. Close this and open it again to start a new one.</string>
+    <string name="handoff_ended_locked">This session was locked after too many wrong codes. Close this and open it again to start a new one.</string>
+    <string name="handoff_confirm_title">Link from your phone</string>
+    <string name="handoff_confirm_message">Open %1$s from your phone?</string>
+    <string name="handoff_open_new_tab">Open in new tab</string>
 </resources>

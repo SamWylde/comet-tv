@@ -71,6 +71,7 @@ import com.tdarby.comet.engine.BrowserEngine
 import com.tdarby.comet.engine.EngineCallbacks
 import com.tdarby.comet.engine.WebViewEngine
 import com.tdarby.comet.data.BookmarkTransfer
+import com.tdarby.comet.handoff.HandoffController
 import com.tdarby.comet.data.BrowserStore
 import com.tdarby.comet.data.TabsStore
 import com.tdarby.comet.data.PlaybackResumePolicy
@@ -307,6 +308,7 @@ open class BrowserActivity : AppCompatActivity() {
     private var cursorSpeedSetting = SettingsStore.DEFAULT_CURSOR_SPEED
     private var hintShownAlready = false
 
+    private var handoff: HandoffController? = null
     private var isFullscreen = false
     private val updateController by lazy { UpdateController(this) { isFullscreen } }
     private val hiddenDownloads by lazy { HiddenDownloads(this) }
@@ -826,6 +828,7 @@ open class BrowserActivity : AppCompatActivity() {
             getString(R.string.menu_home) to ::showHome,
             getString(R.string.menu_bookmarks) to ::showBookmarks,
             getString(R.string.menu_downloads) to ::showDownloads,
+            getString(R.string.menu_send_from_phone) to ::showSendFromPhone,
             getString(R.string.menu_new_tab) to ::openNewTab,
             getString(R.string.menu_close_tab) to { tabManager.closeActive() },
             getString(R.string.menu_voice) to ::launchVoiceSearch,
@@ -859,6 +862,14 @@ open class BrowserActivity : AppCompatActivity() {
             .setItems(actions.map { it.first }.toTypedArray()) { _, which -> actions[which].second() }
             .setNegativeButton(R.string.action_close, null)
             .show()
+    }
+
+    private fun showSendFromPhone() {
+        handoff?.close()
+        handoff = HandoffController(this, { searchTemplate }) { url ->
+            if (isFullscreen) exitFullscreen?.invoke()
+            tabManager.newTab(url)
+        }.also { it.show() }
     }
 
     private fun openNewTab() {
@@ -2512,7 +2523,15 @@ open class BrowserActivity : AppCompatActivity() {
         )
     }
 
+    override fun onStop() {
+        // The phone link must not stay reachable once Comet is out of sight.
+        handoff?.close()
+        handoff = null
+        super.onStop()
+    }
+
     override fun onDestroy() {
+        handoff?.close()
         cancelPermissionPrompt(deny = true)
         // A configuration change recreates the Activity in the same process; wiping then would
         // end the private session mid-use.
