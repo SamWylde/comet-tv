@@ -8,6 +8,8 @@ import android.net.Uri
 import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
+import android.webkit.WebView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
@@ -17,6 +19,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.tdarby.comet.R
 import com.tdarby.comet.data.SettingsStore
+import com.tdarby.comet.engine.MediaScripts
 import com.tdarby.comet.ui.BrowserActivity
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -35,7 +38,9 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -226,7 +231,7 @@ class PhysicalTvReliabilityTest {
     }
 
     @Test
-    fun videoFullscreenSoak_activityAndFullscreenRemainStable() {
+    fun videoFullscreenSoak_activityFullscreenAndPlaybackRemainStable() {
         val url = arguments.getString(ARG_VIDEO_URL).orEmpty()
         assumeTrue("Video soak requires -e $ARG_VIDEO_URL https://...", url.isNotBlank())
         prepareSettings(blockRedirects = arguments.boolean(ARG_STRICT_REDIRECTS, false))
@@ -250,6 +255,9 @@ class PhysicalTvReliabilityTest {
                 }
             }
 
+            // Fullscreen alone can hold while the picture is frozen, so the video itself is checked.
+            scenario.assertPlaybackAdvances("at the start of the soak")
+
             val deadline = SystemClock.uptimeMillis() + soakMinutes * 60_000L
             while (SystemClock.uptimeMillis() < deadline) {
                 scenario.assertAlive()
@@ -257,8 +265,13 @@ class PhysicalTvReliabilityTest {
                     assertEquals("Fullscreen unexpectedly exited during soak", View.VISIBLE,
                         scenario.viewVisibility(R.id.fullscreen_container))
                 }
+                val playback = scenario.playbackProbe()
+                    ?: fail("The video element disappeared during the soak")
+                assertEquals("The media element reported error code ${playback.error} during the soak", 0,
+                    playback.error)
                 SystemClock.sleep(probeSeconds * 1_000L)
             }
+            scenario.assertPlaybackAdvances("at the end of the soak")
         }
     }
 
@@ -298,6 +311,62 @@ class PhysicalTvReliabilityTest {
         }
         assertTrue(message, condition())
     }
+
+    /** What the page's first playing media element (else its first one) reports. */
+    private data class Playback(val time: Double, val paused: Boolean, val ended: Boolean, val error: Int)
+
+    /**
+     * Reads the media element through the page, so it sees the video itself and not only the app's
+     * fullscreen view. Null when the top page and its same-origin frames hold no media element
+     * (a player inside a cross-origin frame can't be read this way; pick a fixture with the
+     * player in the page).
+     */
+    private fun ActivityScenario<BrowserActivity>.playbackProbe(): Playback? {
+        val raw = AtomicReference<String?>()
+        val answered = CountDownLatch(1)
+        onActivity { activity ->
+            val webView = activity.findViewById<ViewGroup>(R.id.engine_container).firstWebView()
+            if (webView == null) answered.countDown()
+            else webView.evaluateJavascript(MediaScripts.PLAYBACK_PROBE) {
+                raw.set(it)
+                answered.countDown()
+            }
+        }
+        assertTrue("The playback probe got no answer", answered.await(PROBE_ANSWER_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+        // evaluateJavascript hands back the script's string as a JSON string literal, or null.
+        val json = runCatching {
+            org.json.JSONTokener(raw.get() ?: return null).nextValue() as? String
+        }.getOrNull() ?: return null
+        val o = org.json.JSONObject(json)
+        return Playback(o.getDouble("time"), o.getBoolean("paused"), o.getBoolean("ended"), o.optInt("error"))
+    }
+
+    private fun ViewGroup.firstWebView(): WebView? {
+        for (i in 0 until childCount) {
+            val child = getChildAt(i)
+            if (child is WebView) return child
+            if (child is ViewGroup) child.firstWebView()?.let { return it }
+        }
+        return null
+    }
+
+    /** The video must be playing and its clock must move, with no error on the media element. */
+    private fun ActivityScenario<BrowserActivity>.assertPlaybackAdvances(moment: String) {
+        val first = playbackProbe() ?: fail(
+            "No media element reachable $moment: the test reads the top page and same-origin frames"
+        )
+        SystemClock.sleep(PLAYBACK_CHECK_MS)
+        val second = playbackProbe() ?: fail("The video element disappeared $moment")
+        assertEquals("The media element reported error code ${second.error} $moment", 0, second.error)
+        assertFalse("The video had ended $moment; use a longer or looping fixture", second.ended)
+        assertFalse("The video was paused $moment", second.paused)
+        assertTrue(
+            "currentTime moved from ${first.time} to ${second.time} in ${PLAYBACK_CHECK_MS / 1000} s $moment",
+            second.time - first.time >= PLAYBACK_MIN_ADVANCE_SECONDS
+        )
+    }
+
+    private fun fail(message: String): Nothing = throw AssertionError(message)
 
     private fun ActivityScenario<BrowserActivity>.focusedViewId(): Int = read { it.currentFocus?.id ?: View.NO_ID }
     private fun ActivityScenario<BrowserActivity>.viewHasFocus(id: Int): Boolean =
@@ -416,6 +485,9 @@ class PhysicalTvReliabilityTest {
         const val PAGE_READY_TIMEOUT_MS = 45_000L
         const val FULLSCREEN_TIMEOUT_MS = 60_000L
         const val HOSTILE_SETTLE_MS = 2_500L
+        const val PROBE_ANSWER_TIMEOUT_MS = 5_000L
+        const val PLAYBACK_CHECK_MS = 5_000L
+        const val PLAYBACK_MIN_ADVANCE_SECONDS = 2.0
 
         val REMOTE_KEY_NAMES = mapOf(
             "UP" to KeyEvent.KEYCODE_DPAD_UP,

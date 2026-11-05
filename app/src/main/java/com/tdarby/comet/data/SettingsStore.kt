@@ -55,7 +55,8 @@ class SettingsStore(context: Context) {
             firstRunHintShown = prefs[KEY_HINT_SHOWN] ?: false,
             siteBrowsingSettings = SiteBrowsingSettingsJson.decode(
                 prefs[KEY_SITE_BROWSING_SETTINGS]
-            )
+            ),
+            videoRemoteControl = prefs[KEY_VIDEO_REMOTE] ?: true
         )
     }
 
@@ -117,6 +118,8 @@ class SettingsStore(context: Context) {
     suspend fun setCursorSpeed(value: Int) = ds.edit { it[KEY_CURSOR_SPEED] = value }
     suspend fun setDirectNav(enabled: Boolean) = ds.edit { it[KEY_DIRECT_NAV] = enabled }
 
+    suspend fun setVideoRemoteControl(enabled: Boolean) = ds.edit { it[KEY_VIDEO_REMOTE] = enabled }
+
     suspend fun setSiteAllowlisted(host: String, allowlisted: Boolean) {
         ds.edit { prefs ->
             val current = (prefs[KEY_ALLOWLIST] ?: emptySet()).toMutableSet()
@@ -137,6 +140,7 @@ class SettingsStore(context: Context) {
         private val KEY_DIRECT_NAV = booleanPreferencesKey("direct_nav")
         private val KEY_HINT_SHOWN = booleanPreferencesKey("first_run_hint_shown")
         private val KEY_SITE_BROWSING_SETTINGS = stringPreferencesKey("site_browsing_settings_json")
+        private val KEY_VIDEO_REMOTE = booleanPreferencesKey("video_remote_control")
 
         const val DEFAULT_SEARCH = "https://www.google.com/search?q=%s"
         /** Cursor speed slider value 1..5 (3 = normal). */
@@ -154,6 +158,7 @@ class SettingsStore(context: Context) {
         val cursorSpeed: Int,
         val directNav: Boolean,
         val firstRunHintShown: Boolean,
-        val siteBrowsingSettings: Map<String, SiteBrowsingSettings>
+        val siteBrowsingSettings: Map<String, SiteBrowsingSettings>,
+        val videoRemoteControl: Boolean = true
     )
 }

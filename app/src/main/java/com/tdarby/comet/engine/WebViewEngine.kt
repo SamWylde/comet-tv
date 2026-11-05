@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Base64
 import android.view.View
@@ -24,6 +25,8 @@ import com.tdarby.comet.adblock.AdBlocker
 import com.tdarby.comet.web.BrowserWebChromeClient
 import com.tdarby.comet.web.BrowserWebViewClient
 import com.tdarby.comet.adblock.PopupGuard
+import androidx.webkit.JavaScriptReplyProxy
+import androidx.webkit.WebMessageCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import androidx.webkit.ScriptHandler
@@ -42,6 +45,27 @@ class WebViewEngine(
     private val ctx = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
     private var popupScript: ScriptHandler? = null
+    private var mediaAgentScript: ScriptHandler? = null
+    private val mediaHub = MediaFrameHub(
+        clock = { SystemClock.uptimeMillis() },
+        schedule = { delayMs, task ->
+            val runnable = Runnable { task() }
+            mainHandler.postDelayed(runnable, delayMs)
+            val cancel: () -> Unit = { mainHandler.removeCallbacks(runnable) }
+            cancel
+        }
+    )
+    /** A new page makes every frame the hub knew obsolete. */
+    private val pageCallbacks = object : EngineCallbacks by callbacks {
+        override fun onPageStarted(url: String) {
+            mediaHub.reset()
+            callbacks.onPageStarted(url)
+        }
+    }
+    private val scriptTransport = ScriptTransport { script, callback ->
+        if (destroyed) callback(null) else webView.evaluateJavascript(script, callback)
+    }
+    private var mediaController = MediaController(scriptTransport) { SystemClock.uptimeMillis() }
     private val blobRequestLock = Any()
     private var pendingBlobRequest: PendingBlobRequest? = null
     private var appliedBrowsingMode: Triple<Boolean, Boolean, Boolean>? = null
@@ -82,15 +106,55 @@ class WebViewEngine(
         // Third-party cookies are kept on deliberately: embedded video players and SSO logins on
         // streaming sites frequently require them. Trackers are handled by the ad/tracker blocker.
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
-        webView.webViewClient = BrowserWebViewClient(callbacks)
+        webView.webViewClient = BrowserWebViewClient(pageCallbacks)
         webView.webChromeClient = BrowserWebChromeClient(callbacks)
         webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
             callbacks.onDownloadRequested(url, userAgent, contentDisposition, mimeType)
         }
         // Installed once, before any page loads: interfaces added later only reach later loads.
         webView.addJavascriptInterface(BlobBridge(), BLOB_BRIDGE_NAME)
+        installMediaAgent()
         webView.isFocusable = true
         webView.isFocusableInTouchMode = true
+    }
+
+    /**
+     * Puts a small media agent in every frame, cross-origin ones included, and listens to it. Both
+     * must be registered before any page loads. Without WebView support the controller keeps only
+     * the same-origin search of [ScriptTransport]. Everything the pages send is untrusted (see
+     * [MediaWire] and [MediaFrameHub]); a listener must never throw, so a bad message is dropped.
+     */
+    private fun installMediaAgent() {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT) ||
+            !WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
+        ) return
+        runCatching {
+            WebViewCompat.addWebMessageListener(webView, MEDIA_BRIDGE_NAME, setOf("*")) {
+                    _, message, _, _, replyProxy ->
+                try {
+                    val text = if (message.type == WebMessageCompat.TYPE_STRING) message.data else null
+                    mediaHub.onMessage(replyProxy, text) { ReplyProxyLink(replyProxy) }
+                } catch (_: Exception) {
+                    // Page data must never crash the browser.
+                }
+            }
+            mediaAgentScript = WebViewCompat.addDocumentStartJavaScript(
+                webView, MediaScripts.frameAgent(MEDIA_BRIDGE_NAME), setOf("*")
+            )
+            mediaController = MediaController(
+                FallbackTransport(HubTransport(mediaHub), scriptTransport)
+            ) { SystemClock.uptimeMillis() }
+        }
+    }
+
+    private class ReplyProxyLink(private val proxy: JavaScriptReplyProxy) : FrameLink {
+        override fun post(message: String): Boolean =
+            try {
+                proxy.postMessage(message)
+                true
+            } catch (_: Exception) {
+                false
+            }
     }
 
     private inner class PendingBlobRequest(val token: String, val sourceUrl: String) {
@@ -289,7 +353,20 @@ class WebViewEngine(
     }
 
     override fun mediaAction(action: MediaAction) {
-        webView.evaluateJavascript(MediaScripts.forAction(action), null)
+        mediaCommand(
+            when (action) {
+                MediaAction.PLAY_PAUSE -> MediaCommand.TogglePlay
+                MediaAction.PLAY -> MediaCommand.Play
+                MediaAction.PAUSE -> MediaCommand.Pause
+                MediaAction.STOP -> MediaCommand.Stop
+                MediaAction.REWIND -> MediaCommand.Seek(-REMOTE_SEEK_SECONDS)
+                MediaAction.FORWARD -> MediaCommand.Seek(REMOTE_SEEK_SECONDS)
+            }
+        ) {}
+    }
+
+    override fun mediaCommand(command: MediaCommand, result: (MediaOutcome) -> Unit) {
+        if (destroyed) result(MediaOutcome.NO_VIDEO) else mediaController.run(command, result)
     }
 
     override fun setDesktopMode(enabled: Boolean) =
@@ -378,10 +455,13 @@ class WebViewEngine(
     override fun destroy() {
         cancelBlobRequest()
         destroyed = true
+        mediaHub.reset()
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             popupScript?.remove()
+            mediaAgentScript?.remove()
         }
         popupScript = null
+        mediaAgentScript = null
         webView.stopLoading()
         (webView.parent as? ViewGroup)?.removeView(webView)
         webView.destroy()
@@ -390,5 +470,8 @@ class WebViewEngine(
     companion object {
         private const val BLOB_REQUEST_TIMEOUT_MS = 2 * 60 * 1000L
         private const val BLOB_BRIDGE_NAME = "CometBlob"
+        /** Neutral on purpose: pages see this object in every frame. */
+        private const val MEDIA_BRIDGE_NAME = "__frameMedia"
+        private const val REMOTE_SEEK_SECONDS = 10.0
     }
 }

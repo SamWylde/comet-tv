@@ -287,6 +287,9 @@ open class BrowserActivity : AppCompatActivity() {
     private var cursorSpeedSetting = SettingsStore.DEFAULT_CURSOR_SPEED
     private var hintShownAlready = false
 
+    private var videoRemoteControl = true
+    private lateinit var videoControls: VideoControlsOverlay
+
     private var isFullscreen = false
     private var exitFullscreen: (() -> Unit)? = null
     private var fullscreenView: View? = null
@@ -356,6 +359,7 @@ open class BrowserActivity : AppCompatActivity() {
             this@BrowserActivity.directNav = directNav
             this@BrowserActivity.hintShownAlready = firstRunHintShown
             this@BrowserActivity.siteBrowsingSettings = siteBrowsingSettings
+            this@BrowserActivity.videoRemoteControl = videoRemoteControl
             AdBlocker.networkEnabled = blockNetwork
             AdBlocker.cosmeticEnabled = blockCosmetic
             AdBlocker.popupEnabled = blockPopups
@@ -378,6 +382,17 @@ open class BrowserActivity : AppCompatActivity() {
             },
             ui = callbacks,
             onChanged = ::onTabsChanged
+        )
+
+        videoControls = VideoControlsOverlay(
+            container = binding.videoControlsContainer,
+            engine = { if (tabManager.hasTabs) tabManager.activeEngine else null },
+            isFullscreen = { isFullscreen },
+            exitFullscreen = { exitFullscreen?.invoke() },
+            restoreFocus = {
+                if (isFullscreen) fullscreenView?.requestFocus()
+                else if (tabManager.hasTabs) engine.view.requestFocus()
+            }
         )
 
         wireChrome()
@@ -754,6 +769,7 @@ open class BrowserActivity : AppCompatActivity() {
             getString(R.string.menu_zoom_in) to { engine.zoomIn() },
             getString(R.string.menu_zoom_out) to { engine.zoomOut() }
             ))
+            add(getString(R.string.menu_video_controls) to { videoControls.show() })
             if (!isIncognito) {
                 add(3, getString(R.string.menu_history) to ::showHistory)
                 add(getString(if (bookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark) to
@@ -1297,6 +1313,8 @@ open class BrowserActivity : AppCompatActivity() {
         dlg.switchBlockPopups.isChecked = AdBlocker.popupEnabled
         dlg.switchBlockRedirects.isChecked = AdBlocker.redirectBlockEnabled
         dlg.switchDirectNav.isChecked = directNav
+        dlg.switchVideoRemote.isChecked = videoRemoteControl
+        dlg.switchVideoRemote.contentDescription = getString(R.string.settings_video_remote)
         dlg.seekCursorSpeed.progress = (cursorSpeedSetting - 1).coerceIn(0, 4)
         dlg.switchDesktop.contentDescription = getString(R.string.settings_desktop)
         dlg.spinnerSearch.contentDescription = getString(R.string.settings_search)
@@ -1340,6 +1358,7 @@ open class BrowserActivity : AppCompatActivity() {
                 AdBlocker.popupEnabled = dlg.switchBlockPopups.isChecked
                 AdBlocker.redirectBlockEnabled = dlg.switchBlockRedirects.isChecked
                 directNav = dlg.switchDirectNav.isChecked
+                videoRemoteControl = dlg.switchVideoRemote.isChecked
                 cursorSpeedSetting = dlg.seekCursorSpeed.progress + 1
                 cursor.speedFactor = speedFactor(cursorSpeedSetting)
                 tabManager.forEachEngine {
@@ -1377,6 +1396,7 @@ open class BrowserActivity : AppCompatActivity() {
                     settings.setBlockPopups(AdBlocker.popupEnabled)
                     settings.setBlockRedirects(AdBlocker.redirectBlockEnabled)
                     settings.setDirectNav(directNav)
+                    settings.setVideoRemoteControl(videoRemoteControl)
                     settings.setCursorSpeed(cursorSpeedSetting)
                     if (host != null) settings.setSiteAllowlisted(host, allowChecked)
                     if (host != null) settings.setSiteBrowsingSettings(host, newSiteSettings)
@@ -1428,6 +1448,9 @@ open class BrowserActivity : AppCompatActivity() {
             }
             return true
         }
+        // The video controls take the D-pad while they show, and in fullscreen video when the
+        // user left "Remote controls video" on; otherwise the player view handles keys itself.
+        if (videoControls.handleKey(event, isFullscreen && videoRemoteControl)) return true
         // In fullscreen video, let the now-focused player view handle D-pad/OK natively.
         if (isFullscreen) return super.dispatchKeyEvent(event)
         if (binding.tabSwitcherOverlay.visibility == View.VISIBLE) return super.dispatchKeyEvent(event)
@@ -1613,6 +1636,9 @@ open class BrowserActivity : AppCompatActivity() {
                     return
                 }
                 when {
+                    ::videoControls.isInitialized && videoControls.isVisible -> {
+                        resetExitSequence(); videoControls.hide()
+                    }
                     binding.tabSwitcherOverlay.visibility == View.VISIBLE -> {
                         resetExitSequence(); dismissTabSwitcher()
                     }
@@ -1879,6 +1905,7 @@ open class BrowserActivity : AppCompatActivity() {
         @Suppress("DEPRECATION") // Legacy flag complements Insets on older/vendor TV builds.
         override fun onEnterFullscreen(fullscreenView: View, onExit: () -> Unit) {
             cursor.stopMove()
+            if (::videoControls.isInitialized) videoControls.hide()
             isFullscreen = true
             exitFullscreen = onExit
             // Providers normally hand us a detached view, but some keep it attached. Always move
@@ -1915,6 +1942,7 @@ open class BrowserActivity : AppCompatActivity() {
         @Suppress("DEPRECATION") // Clear the compatibility flag added on entry.
         override fun onExitFullscreen() {
             isFullscreen = false
+            if (::videoControls.isInitialized) videoControls.hide()
             exitFullscreen = null
             val view = fullscreenView
             binding.fullscreenContainer.removeView(view)
@@ -1959,6 +1987,7 @@ open class BrowserActivity : AppCompatActivity() {
     override fun onPause() {
         if (::cursor.isInitialized) cursor.stopMove()
         persistTabs()
+        if (::videoControls.isInitialized) videoControls.hide()
         if (::tabManager.isInitialized) tabManager.onPause()
         super.onPause()
     }
@@ -2006,6 +2035,7 @@ open class BrowserActivity : AppCompatActivity() {
         // A configuration change recreates the Activity in the same process; wiping then would
         // end the private session mid-use.
         if (isIncognito && !isChangingConfigurations) clearBrowsingData()
+        if (::videoControls.isInitialized) videoControls.release()
         if (::tabManager.isInitialized) tabManager.destroyAll()
         super.onDestroy()
     }

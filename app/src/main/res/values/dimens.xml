@@ -1,4 +1,5 @@
 <resources>
     <dimen name="tv_safe_horizontal">48dp</dimen>
     <dimen name="tv_safe_vertical">24dp</dimen>
+    <dimen name="video_panel_bottom_margin">48dp</dimen>
 </resources>
