@@ -9,6 +9,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.tdarby.comet.adblock.FilterListRepository
 import com.tdarby.comet.adblock.FilterUpdateWorker
+import com.tdarby.comet.data.PrivateProfile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,11 +24,17 @@ class CometApp : Application() {
         super.onCreate()
         // WebView storage is process-global. Private windows run in :incognito so they can use a
         // separate cookie/DOM-storage directory without contaminating normal browsing.
+        val filters = FilterListRepository(this)
         if (Application.getProcessName().endsWith(":incognito")) {
-            WebView.setDataDirectorySuffix("incognito")
+            // A private process killed without onDestroy leaves its cookies/storage on disk; start
+            // clean, before any WebView exists to hold those files open.
+            PrivateProfile.wipeLeftovers(dataDir, cacheDir)
+            WebView.setDataDirectorySuffix(PrivateProfile.DATA_SUFFIX)
+            // Private tabs need the same host blocking; updates stay in the default process.
+            filters.loadBundled()
+            appScope.launch { filters.loadCached() }
             return
         }
-        val filters = FilterListRepository(this)
         // Keep the tiny bundled baseline available for the first request, but never make the launch
         // wait while a ~3 MB downloaded list is parsed on slower TV hardware.
         filters.loadBundled()

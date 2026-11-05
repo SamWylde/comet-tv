@@ -126,8 +126,15 @@ open class BrowserActivity : AppCompatActivity() {
                 ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
                 ?.firstOrNull()
                 ?.takeIf { it.isNotBlank() } ?: return@registerForActivityResult
-            engine.loadUrl(UrlUtils.toUrlOrSearch(spoken, searchTemplate))
+            // The result can reach a recreated Activity while startup is still reading its state.
+            if (::tabManager.isInitialized) runVoiceSearch(spoken) else pendingVoiceSearch = spoken
         }
+
+    private var pendingVoiceSearch: String? = null
+
+    private fun runVoiceSearch(spoken: String) {
+        engine.loadUrl(UrlUtils.toUrlOrSearch(spoken, searchTemplate))
+    }
 
     /** Completed when the OS runtime-permission prompt returns (for web permission requests). */
     private var onOsPermissionResult: ((granted: Boolean) -> Unit)? = null
@@ -312,19 +319,21 @@ open class BrowserActivity : AppCompatActivity() {
         settings = SettingsStore(this)
         binding.startupOverlay.requestFocus()
 
+        val privateSession = if (isIncognito) restorePrivateSession(savedInstanceState) else null
+
         // DataStore and JSON session/history reads must not hold up Android's first frame. The
         // branded loading surface is drawn immediately while this small snapshot is read on IO.
         lifecycleScope.launch {
             val startup = withContext(Dispatchers.IO) {
                 val browserStore = BrowserStore(applicationContext)
                 val savedTabsStore = TabsStore(applicationContext)
-                val savedTabs = if (isIncognito) emptyList() else savedTabsStore.load()
+                val savedTabs = if (isIncognito) privateSession?.tabs.orEmpty() else savedTabsStore.load()
                 StartupData(
                     settings = settings.snapshot(),
                     browserStore = browserStore,
                     tabsStore = savedTabsStore,
                     savedTabs = savedTabs,
-                    activeTab = savedTabsStore.activeIndex
+                    activeTab = privateSession?.activeIndex ?: savedTabsStore.activeIndex
                 )
             }
             initializeBrowser(startup)
@@ -372,6 +381,7 @@ open class BrowserActivity : AppCompatActivity() {
         setupCursorFocus()
 
         openInitialTabs(startup.savedTabs, startup.activeTab)
+        pendingVoiceSearch?.let { pendingVoiceSearch = null; runVoiceSearch(it) }
         binding.startupOverlay.visibility = View.GONE
         syncHomeVisibility(requestFocus = true)
         binding.root.post { reportFullyDrawn() }
@@ -1413,7 +1423,8 @@ open class BrowserActivity : AppCompatActivity() {
 
     /** Analog stick / D-pad-hat from a gamepad moves the on-screen cursor. */
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
-        if (!isFullscreen && cursor.active && tabManager.hasTabs &&
+        if (::cursor.isInitialized && ::tabManager.isInitialized &&
+            !isFullscreen && cursor.active && tabManager.hasTabs &&
             event.action == MotionEvent.ACTION_MOVE &&
             event.source and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK
         ) {
@@ -1850,14 +1861,45 @@ open class BrowserActivity : AppCompatActivity() {
         if (::tabManager.isInitialized) tabManager.releaseInactiveEngines()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        if (!isIncognito || !::tabManager.isInitialized || !tabManager.hasTabs) return
+        // Only a configuration change in the same process may bring these tabs back (see
+        // restorePrivateSession); the token tells it apart from a restore after process death.
+        val tabs = tabManager.snapshot()
+        outState.putString(KEY_PRIVATE_TOKEN, PROCESS_TOKEN)
+        outState.putStringArrayList(KEY_PRIVATE_URLS, ArrayList(tabs.map { it.url }))
+        outState.putStringArrayList(KEY_PRIVATE_TITLES, ArrayList(tabs.map { it.title }))
+        outState.putInt(KEY_PRIVATE_ACTIVE, tabManager.activePosition())
+    }
+
+    private fun restorePrivateSession(state: Bundle?): com.tdarby.comet.data.TabSessionPolicy.Session? {
+        if (state?.getString(KEY_PRIVATE_TOKEN) != PROCESS_TOKEN) return null
+        val urls = state.getStringArrayList(KEY_PRIVATE_URLS) ?: return null
+        val titles = state.getStringArrayList(KEY_PRIVATE_TITLES) ?: return null
+        if (urls.size != titles.size) return null
+        return com.tdarby.comet.data.TabSessionPolicy.bound(
+            urls.indices.map { TabManager.TabSnapshot(urls[it], titles[it]) },
+            state.getInt(KEY_PRIVATE_ACTIVE)
+        )
+    }
+
     override fun onDestroy() {
         cancelPermissionPrompt(deny = true)
-        if (isIncognito) clearBrowsingData()
+        // A configuration change recreates the Activity in the same process; wiping then would
+        // end the private session mid-use.
+        if (isIncognito && !isChangingConfigurations) clearBrowsingData()
         if (::tabManager.isInitialized) tabManager.destroyAll()
         super.onDestroy()
     }
 
     companion object {
+        /** Fresh per process: a saved private bundle is only trusted when it carries this value. */
+        private val PROCESS_TOKEN = java.util.UUID.randomUUID().toString()
+        private const val KEY_PRIVATE_TOKEN = "private_token"
+        private const val KEY_PRIVATE_URLS = "private_urls"
+        private const val KEY_PRIVATE_TITLES = "private_titles"
+        private const val KEY_PRIVATE_ACTIVE = "private_active"
         private const val HOME_URL = "about:blank"
         private const val HOME_TILE_LIMIT = 8
         private const val MAX_COMPACT_TABS = 8

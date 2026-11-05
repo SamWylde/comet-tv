@@ -1,8 +1,10 @@
 package com.tdarby.comet.data
 
 import android.content.Context
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
@@ -11,7 +13,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
-private val Context.dataStore by preferencesDataStore(name = "comet_settings")
+private val Context.dataStore by preferencesDataStore(
+    name = "comet_settings",
+    // A corrupt settings file resets to defaults instead of crashing every launch.
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
+)
 
 /** Persisted user settings (desktop mode, ad-block toggles, cursor options). */
 class SettingsStore(context: Context) {
