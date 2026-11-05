@@ -63,6 +63,34 @@ class BrowserStore(context: Context) {
         if (bookmarks.removeAll { it.url == url }) saveBookmarks()
     }
 
+    /** Gives the bookmark a new title (blank keeps the URL as the title). Order is unchanged. */
+    fun renameBookmark(url: String, title: String) {
+        val i = bookmarks.indexOfFirst { it.url == url }
+        if (i < 0) return
+        bookmarks[i] = SiteItem(title.trim().ifBlank { url }, url)
+        saveBookmarks()
+    }
+
+    /** Moves the bookmark one place earlier ([delta] -1) or later (+1). The stored order is the home-screen order. */
+    fun moveBookmark(url: String, delta: Int) {
+        val from = bookmarks.indexOfFirst { it.url == url }
+        val to = from + delta
+        if (from < 0 || to !in bookmarks.indices) return
+        bookmarks.add(to, bookmarks.removeAt(from))
+        saveBookmarks()
+    }
+
+    /** Merges bookmarks from an export file: appended after the saved ones, duplicates skipped. */
+    fun importBookmarks(incoming: List<SiteItem>): BookmarkTransfer.MergeResult {
+        val result = BookmarkTransfer.merge(bookmarks, incoming)
+        if (result.added > 0) {
+            bookmarks.clear()
+            bookmarks.addAll(result.merged)
+            saveBookmarks()
+        }
+        return result
+    }
+
     fun recordVisit(title: String, url: String) {
         if (url.isBlank() || url == "about:blank") return
         history.removeAll { it.url == url }
