@@ -1352,7 +1352,16 @@ open class BrowserActivity : AppCompatActivity() {
                 )
                 if (host != null) {
                     if (allowChecked) AdBlocker.setAllowlist(AdBlocker.currentAllowlist() + host)
-                    else AdBlocker.setAllowlist(AdBlocker.currentAllowlist() - host)
+                    else {
+                        val covering = AdBlocker.coveringEntries(AdBlocker.currentAllowlist(), host)
+                        AdBlocker.setAllowlist(AdBlocker.currentAllowlist() - covering)
+                        covering.filter { it != host }.minByOrNull { it.length }?.let { parent ->
+                            Toast.makeText(
+                                this, getString(R.string.allowlist_parent_removed, parent), Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                    tabManager.forEachEngine { it.applyPopupPolicy() }
                     siteBrowsingSettings = siteBrowsingSettings.toMutableMap().apply {
                         if (newSiteSettings.isDefault) remove(host) else put(host, newSiteSettings)
                     }

@@ -2,6 +2,7 @@ package com.tdarby.comet.data
 
 import android.content.Context
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
+import com.tdarby.comet.adblock.AdBlocker
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
@@ -119,7 +120,7 @@ class SettingsStore(context: Context) {
     suspend fun setSiteAllowlisted(host: String, allowlisted: Boolean) {
         ds.edit { prefs ->
             val current = (prefs[KEY_ALLOWLIST] ?: emptySet()).toMutableSet()
-            if (allowlisted) current.add(host) else current.remove(host)
+            if (allowlisted) current.add(host) else current.removeAll(AdBlocker.coveringEntries(current, host))
             prefs[KEY_ALLOWLIST] = current
         }
     }

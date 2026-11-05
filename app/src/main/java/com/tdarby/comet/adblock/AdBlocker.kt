@@ -28,6 +28,12 @@ object AdBlocker {
 
     // Immutable snapshot, swapped atomically. Lets the WebView request thread read lock-free while
     // WorkManager merges in downloaded lists.
+    // Bundled and downloaded hosts are kept apart: a new downloaded list replaces the downloaded set
+    // (so rules withdrawn upstream stop applying) while the bundled baseline always survives.
+    @Volatile
+    private var bundledHosts: Set<String> = emptySet()
+    @Volatile
+    private var downloadedHosts: Set<String> = emptySet()
     @Volatile
     private var blockedHosts: Set<String> = emptySet()
     private val allowlist = Collections.synchronizedSet(HashSet<String>())
@@ -40,20 +46,28 @@ object AdBlocker {
     fun loadFromAssets(context: Context) {
         if (loaded) return
         runCatching {
-            val merged = HashSet(blockedHosts)
-            context.assets.open("blocklist_hosts.txt").use { parseInto(it, merged) }
-            blockedHosts = merged
+            val bundled = HashSet<String>()
+            context.assets.open("blocklist_hosts.txt").use { parseInto(it, bundled) }
+            bundledHosts = bundled
+            blockedHosts = bundled + downloadedHosts
         }
         loaded = true
     }
 
-    /** Merge an additional hostname list (e.g. a downloaded filter list) into the blocklist. */
+    /** Replace the downloaded host set (bundled hosts are kept); the effective set is the union. */
     @Synchronized
-    fun mergeFromStream(stream: InputStream) {
-        val merged = HashSet(blockedHosts)
-        parseInto(stream, merged)
-        blockedHosts = merged
+    fun installDownloaded(stream: InputStream) {
+        installDownloaded(parseHosts(stream))
     }
+
+    @Synchronized
+    fun installDownloaded(hosts: Set<String>) {
+        downloadedHosts = hosts
+        blockedHosts = bundledHosts + hosts
+    }
+
+    /** Parse a hosts-format / bare-host list into a set of lowercase hosts. */
+    fun parseHosts(stream: InputStream): Set<String> = HashSet<String>().also { parseInto(stream, it) }
 
     fun setAllowlist(hosts: Set<String>) {
         allowlist.clear()
@@ -65,9 +79,18 @@ object AdBlocker {
     fun isAllowlisted(host: String?): Boolean {
         if (host == null) return false
         synchronized(allowlist) {
-            return allowlist.any { host == it || host.endsWith(".$it") }
+            return allowlist.any { covers(it, host) }
         }
     }
+
+    /** Popup blocking applies to a page on [host] when the toggle is on and the host isn't allowlisted. */
+    fun popupBlockingActive(host: String?): Boolean = popupEnabled && !isAllowlisted(host)
+
+    /** Allowlist entries (the host itself or a parent domain) that make [host] allowlisted. */
+    fun coveringEntries(allowlist: Set<String>, host: String): Set<String> =
+        allowlist.filterTo(HashSet()) { covers(it, host) }
+
+    private fun covers(entry: String, host: String) = host == entry || host.endsWith(".$entry")
 
     /** True if a sub-resource [requestUrl] should be blocked given the current [pageHost]. */
     fun shouldBlock(requestUrl: String?, pageHost: String?): Boolean {
@@ -105,11 +128,33 @@ object AdBlocker {
         return registrableDomain(targetHost) != registrableDomain(pageHost)
     }
 
-    /** Approximate eTLD+1 (last two labels). Good enough for same-site checks in strict mode. */
-    private fun registrableDomain(host: String): String {
+    /**
+     * Approximate eTLD+1 for same-site checks in strict mode: last two labels, or three when the
+     * last two are a known multi-part public suffix. IP literals compare whole.
+     */
+    internal fun registrableDomain(rawHost: String): String {
+        val host = rawHost.lowercase().trimEnd('.')
+        if (host.startsWith("[") || host.contains(':') || IPV4.matches(host)) return host
         val parts = host.split('.')
-        return if (parts.size <= 2) host else parts.takeLast(2).joinToString(".")
+        if (parts.size <= 2) return host
+        val lastTwo = parts.takeLast(2).joinToString(".")
+        return if (lastTwo in MULTI_PART_SUFFIXES && parts.size >= 3) {
+            parts.takeLast(3).joinToString(".")
+        } else lastTwo
     }
+
+    private val IPV4 = Regex("""\d{1,3}(\.\d{1,3}){3}""")
+
+    private val MULTI_PART_SUFFIXES = setOf(
+        "co.uk", "org.uk", "ac.uk", "gov.uk", "me.uk", "net.uk", "ltd.uk", "plc.uk",
+        "com.au", "net.au", "org.au", "edu.au", "gov.au", "co.nz", "net.nz", "org.nz",
+        "co.jp", "ne.jp", "or.jp", "ac.jp", "co.kr", "or.kr", "com.br", "net.br", "org.br",
+        "com.cn", "net.cn", "org.cn", "com.tw", "com.hk", "com.sg", "com.my",
+        "co.in", "net.in", "org.in", "co.za", "com.mx", "com.ar", "com.tr", "co.il",
+        "com.ua", "co.id", "com.ph", "com.vn", "com.pk", "com.eg", "com.sa", "co.th",
+        "github.io", "herokuapp.com", "vercel.app", "netlify.app", "pages.dev", "web.app",
+        "firebaseapp.com", "appspot.com", "blogspot.com", "azurewebsites.net", "cloudfront.net"
+    )
 
     internal fun isBlockedHost(host: String): Boolean {
         val hosts = blockedHosts // single volatile read → consistent snapshot

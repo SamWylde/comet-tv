@@ -37,7 +37,7 @@ class StartupScaleTest {
             }
         }
 
-        AdBlocker.mergeFromStream(hosts.byteInputStream())
+        AdBlocker.installDownloaded(hosts.byteInputStream())
 
         assertTrue(AdBlocker.isBlockedHost("blocked-0.startup-scale.test"))
         assertTrue(AdBlocker.isBlockedHost("cdn.blocked-93999.startup-scale.test"))

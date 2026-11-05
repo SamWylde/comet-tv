@@ -39,11 +39,12 @@ class BrowserWebChromeClient(
     ): Boolean {
         val transport = resultMsg.obj as? WebView.WebViewTransport ?: return false
         val capture = WebView(view.context)
+        val popupBlocking = AdBlocker.popupBlockingActive(AdBlocker.hostOf(view.url))
         var handled = false
         fun route(url: String?) {
             if (handled) return
             handled = true
-            if (PopupGuard.shouldOpenNewTab(isUserGesture, AdBlocker.popupEnabled, url)) {
+            if (PopupGuard.shouldOpenNewTab(isUserGesture, popupBlocking, url)) {
                 callbacks.onOpenInNewTab(requireNotNull(url))
             } else callbacks.onPopupBlocked(url)
             capture.post { capture.destroy() }

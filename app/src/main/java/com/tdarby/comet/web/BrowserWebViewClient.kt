@@ -71,7 +71,9 @@ class BrowserWebViewClient(
     override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
         mainFrameUrl = url
         currentHost = AdBlocker.hostOf(url)
-        if (AdBlocker.popupEnabled) view.evaluateJavascript(PopupGuard.JS, null)
+        val popupBlocking = AdBlocker.popupBlockingActive(currentHost)
+        view.settings.javaScriptCanOpenWindowsAutomatically = !popupBlocking
+        if (popupBlocking) view.evaluateJavascript(PopupGuard.JS, null)
         callbacks.onPageStarted(url)
         callbacks.onUrlChanged(url)
         notifyNav(view)

@@ -347,13 +347,16 @@ class WebViewEngine(
 
     override fun applyPopupPolicy() {
         // When popup blocking is on, JS cannot auto-open windows; otherwise it can.
-        webView.settings.javaScriptCanOpenWindowsAutomatically = !AdBlocker.popupEnabled
+        webView.settings.javaScriptCanOpenWindowsAutomatically =
+            !AdBlocker.popupBlockingActive(AdBlocker.hostOf(webView.url))
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
-            if (AdBlocker.popupEnabled && popupScript == null) {
-                popupScript = WebViewCompat.addDocumentStartJavaScript(webView, PopupGuard.JS, setOf("*"))
-            } else if (!AdBlocker.popupEnabled) {
-                popupScript?.remove()
-                popupScript = null
+            // Re-added on every call so the script's embedded allowlist stays current.
+            popupScript?.remove()
+            popupScript = null
+            if (AdBlocker.popupEnabled) {
+                popupScript = WebViewCompat.addDocumentStartJavaScript(
+                    webView, PopupGuard.scriptSkippingHosts(AdBlocker.currentAllowlist()), setOf("*")
+                )
             }
         }
     }
