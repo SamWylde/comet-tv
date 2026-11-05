@@ -266,10 +266,14 @@ class WebViewEngine(
     override fun zoomOut() { webView.zoomOut() }
 
     override fun hitTestAt(
-        xCss: Float,
-        yCss: Float,
+        xPx: Float,
+        yPx: Float,
         result: (href: String?, imageSrc: String?, anchorText: String?) -> Unit
     ) {
+        @Suppress("DEPRECATION")
+        val scale = webView.scale.takeIf { it > 0f } ?: webView.resources.displayMetrics.density
+        val xCss = xPx / scale
+        val yCss = yPx / scale
         val js = "(function(){try{var el=document.elementFromPoint($xCss,$yCss);if(!el)return '{}';" +
             "var a=el.closest&&el.closest('a[href]');var i=el.closest&&el.closest('img[src]');" +
             "return JSON.stringify({href:a?a.href:null,img:i?i.src:null," +
