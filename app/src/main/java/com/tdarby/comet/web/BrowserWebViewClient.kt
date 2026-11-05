@@ -108,7 +108,7 @@ class BrowserWebViewClient(
     override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
         // Only the page itself gets the full-page error; a bad certificate on an image or embed is
         // cancelled quietly. Unsafe TLS is never proceeded.
-        if (isMainFrameSslError(error.url, mainFrameUrl)) {
+        if (isMainFrameSslError(error.url, mainFrameUrl, view.url)) {
             callbacks.onSslError(handler, error)
         } else {
             handler.cancel()
