@@ -32,7 +32,7 @@ class TabManagerTest {
                     container = FrameLayout(context),
                     homeUrl = "about:blank",
                     create = { FakeEngine(View(context)) },
-                    init = { engine -> if (tabs.activeEngine !== engine) mismatches += step },
+                    init = { engine, _ -> if (tabs.activeEngine !== engine) mismatches += step },
                     ui = object : EngineCallbacks {},
                     onChanged = {}
                 )

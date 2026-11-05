@@ -299,7 +299,6 @@ open class BrowserActivity : AppCompatActivity() {
     private val exitPolicy = RemoteExitPolicy()
     private var exitState = RemoteExitPolicy.State()
     private var pendingIntentUrl: String? = null
-    private var recreatedActivity = false
     private var addressBarActive = false
     private var suppressBackCallbackUntil = 0L
     private var homeVisible = false
@@ -315,7 +314,11 @@ open class BrowserActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        recreatedActivity = savedInstanceState != null
+        // Take an incoming link once: from the launch intent on a fresh start, or after a recreation
+        // from the saved state, which holds it only if startup hadn't opened it yet.
+        pendingIntentUrl = if (savedInstanceState == null) intentUrl(intent)
+        else savedInstanceState.getString(KEY_PENDING_LINK)
+        consumeIntentLink()
         binding = ActivityBrowserBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -408,9 +411,8 @@ open class BrowserActivity : AppCompatActivity() {
 
     /** Open a link passed via VIEW intent, else restore the saved session, else a home tab. */
     private fun openInitialTabs(savedTabs: List<TabManager.TabSnapshot>, activeTab: Int) {
-        val intentUrl = pendingIntentUrl ?: if (recreatedActivity) null else intentUrl(intent)
+        val intentUrl = pendingIntentUrl
         pendingIntentUrl = null
-        consumeIntentLink()
         if (savedTabs.isNotEmpty() || intentUrl == null) {
             tabManager.restore(savedTabs, activeTab) // empty -> home tab
         }
@@ -1324,6 +1326,7 @@ open class BrowserActivity : AppCompatActivity() {
             .setTitle(R.string.settings_title)
             .setView(dlg.root)
             .setPositiveButton(R.string.action_apply) { _, _ ->
+                val blockingBefore = blockingState()
                 val newDesktop = dlg.switchDesktop.isChecked
                 desktopMode = newDesktop
                 searchTemplate = SearchEngines.templateAt(dlg.spinnerSearch.selectedItemPosition)
@@ -1378,11 +1381,24 @@ open class BrowserActivity : AppCompatActivity() {
                 tabManager.forEachEngine { browser ->
                     applyBrowsingSettings(browser, AdBlocker.hostOf(browser.currentUrl()))
                 }
+                // The popup guard and cosmetic CSS already injected stay in a loaded page, so a
+                // blocking or allowlist change needs a reload; other settings don't reload.
+                if (blockingState() != blockingBefore) {
+                    tabManager.forEachEngine { browser ->
+                        val url = browser.currentUrl()
+                        if (!url.isNullOrBlank() && url != HOME_URL) browser.reload()
+                    }
+                }
             }
             .setNegativeButton(R.string.action_cancel, null)
             .show()
         dlg.switchDesktop.requestFocus()
     }
+
+    private fun blockingState() = listOf(
+        AdBlocker.networkEnabled, AdBlocker.cosmeticEnabled, AdBlocker.popupEnabled,
+        AdBlocker.redirectBlockEnabled, AdBlocker.currentAllowlist()
+    )
 
     /**
      * In cursor mode the D-pad drives the on-screen pointer instead of moving focus.
@@ -1958,6 +1974,8 @@ open class BrowserActivity : AppCompatActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
+        // A link that arrived during startup and hasn't been opened yet must survive recreation.
+        pendingIntentUrl?.let { outState.putString(KEY_PENDING_LINK, it) }
         if (!isIncognito || !::tabManager.isInitialized || !tabManager.hasTabs) return
         // Only a configuration change in the same process may bring these tabs back (see
         // restorePrivateSession); the token tells it apart from a restore after process death.
@@ -1995,6 +2013,7 @@ open class BrowserActivity : AppCompatActivity() {
         private const val KEY_PRIVATE_URLS = "private_urls"
         private const val KEY_PRIVATE_TITLES = "private_titles"
         private const val KEY_PRIVATE_ACTIVE = "private_active"
+        private const val KEY_PENDING_LINK = "pending_link"
         private const val HOME_URL = "about:blank"
         private const val HOME_TILE_LIMIT = 8
         private const val HOME_TILE_WIDTH_DP = 260
