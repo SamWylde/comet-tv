@@ -51,17 +51,18 @@ redirect blocking below.)
   **license review** first.
 
 ## Requirements
-- **JDK 17** (Android Gradle Plugin 8.7 requires it).
-- Android SDK with `platform-tools`, `platforms;android-35`, `build-tools;35.0.0`
+- **JDK 17 or newer** (Android Gradle Plugin 8.9.1 requires at least 17).
+- Android SDK with `platform-tools`, `platforms;android-36`, `build-tools;35.0.0`
   (+ `emulator` and `system-images;android-36;android-tv;x86_64` to run the TV emulator).
-- The Gradle wrapper downloads Gradle 8.9 automatically.
+- The Gradle wrapper downloads Gradle 8.11.1 automatically.
 
-`local.properties` must point `sdk.dir` at your SDK. If your default `java` isn't 17, set
-`JAVA_HOME` to a JDK 17 before building (or uncomment `org.gradle.java.home` in `gradle.properties`).
+`local.properties` must point `sdk.dir` at your SDK. If your default `java` is older than 17, set
+`JAVA_HOME` to JDK 17 or newer before building (or uncomment `org.gradle.java.home` in `gradle.properties`).
 
 ## Build
 ```bash
-./gradlew :app:assembleDebug
+./gradlew :app:assembleDebug        # macOS / Linux / Git Bash
+gradlew.bat :app:assembleDebug      # Windows
 ```
 Outputs land in `app/build/outputs/apk/debug/` (per-ABI APKs + a universal APK).
 
@@ -85,7 +86,8 @@ adb shell monkey -p com.tdarby.comet -c android.intent.category.LEANBACK_LAUNCHE
 # Signed release APKs (R8 minify + per-ABI splits: armeabi-v7a, arm64-v8a, x86_64 + a universal APK)
 ./gradlew :app:assembleRelease
 ```
-Signing reads `keystore.properties` (gitignored). Outputs:
+Signing reads `keystore.properties` (gitignored). Without it, `assembleRelease` stops with an
+error instead of producing an unsigned APK. Outputs:
 `app/build/outputs/apk/release/app-<abi>-release.apk` and `app-universal-release.apk`.
 
 > **Signing key:** the repo ships **no** keystore. The local `keystore.properties` / `*.keystore`
@@ -109,10 +111,15 @@ Signing reads `keystore.properties` (gitignored). Outputs:
    always serves the newest build — what the permanent `aftv.news/2453488` code points at. The
    **universal** APK installs on any CPU (incl. 32-bit boxes like the Chromecast with Google TV HD),
    so it's the right default. Don't mark releases as *pre-release* (`/latest/` skips those).
-2. (For the in-app updater) Update [dist/latest.json](dist/latest.json) with the new `versionCode`,
-   `versionName`, `apkUrl`, and `sha256` (`sha256sum app-...-release.apk`). **`sha256` is mandatory**
-   — the updater refuses to install an APK without a matching hash. Point `UpdateChecker.MANIFEST_URL`
-   at the hosted manifest.
+2. (For the in-app updater) **Only after the release and its assets are published**, update
+   [dist/latest.json](dist/latest.json) with the new `versionCode`, `versionName`, `apkUrl` and
+   `sha256`, then commit and push it. Installed copies read this file from `main`
+   (`UpdateChecker.MANIFEST_URL`), so pushing it earlier offers an update whose APK isn't there yet.
+   - `apkUrl` must name the exact release, not `/latest/`:
+     `https://github.com/SamWylde/comet-tv/releases/download/vX.Y.Z/app-webview-universal-release.apk`.
+     A `/latest/` URL can serve a different build than the one the hash describes.
+   - `sha256` is the hash of that same universal APK (`sha256sum app-webview-universal-release.apk`).
+     **It is mandatory**: the updater refuses to install an APK without a matching hash.
 3. After first install, **Menu → Check for updates** handles upgrades in place (compares `versionCode`,
    downloads, verifies SHA-256, launches the installer) — so Downloader is only needed once per device.
 
