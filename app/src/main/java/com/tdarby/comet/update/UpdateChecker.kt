@@ -64,14 +64,17 @@ class UpdateChecker(private val context: Context) {
         }.getOrNull()
     }
 
-    /** Launch the package installer for a downloaded APK (user confirms). */
-    fun install(apk: File) {
+    /** Launch the package installer for a downloaded APK (user confirms). False if it can't be launched. */
+    fun install(apk: File): Boolean = try {
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apk)
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)
+        true
+    } catch (_: Exception) {
+        false
     }
 
     private fun readUrl(url: String): String? {
@@ -97,8 +100,8 @@ class UpdateChecker(private val context: Context) {
     }
 
     companion object {
-        // Hosted manifest (raw GitHub on the default branch). Bump versionCode + sha256 here on
-        // each release; apkUrl uses the permanent /releases/latest/download/ redirect.
+        // Hosted manifest (raw GitHub on the default branch). It names the tag-specific apkUrl
+        // (/releases/download/vX.Y.Z/...) and is updated only after that release's assets exist.
         const val MANIFEST_URL =
             "https://raw.githubusercontent.com/SamWylde/comet-tv/main/dist/latest.json"
     }

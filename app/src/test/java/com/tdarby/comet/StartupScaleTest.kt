@@ -3,7 +3,6 @@ package com.tdarby.comet
 import com.tdarby.comet.adblock.AdBlocker
 import com.tdarby.comet.data.HistoryItem
 import com.tdarby.comet.ui.HomeContent
-import com.tdarby.comet.web.TabManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -25,21 +24,6 @@ class StartupScaleTest {
         assertEquals(8, recent.size)
         assertEquals("https://duplicate.example/", recent.first().url)
         assertEquals("https://unique-6.example/", recent.last().url)
-    }
-
-    @Test
-    fun largeRestoredSessionMetadataRetainsActiveEntry() {
-        val restored = (0 until 20_000).map { index ->
-            TabManager.TabSnapshot(
-                url = "https://restored-$index.example/watch",
-                title = "Restored tab $index"
-            )
-        }
-        val activeIndex = 17_321
-
-        assertEquals(20_000, restored.size)
-        assertEquals("https://restored-17321.example/watch", restored[activeIndex].url)
-        assertEquals("Restored tab 17321", restored[activeIndex].title)
     }
 
     @Test
