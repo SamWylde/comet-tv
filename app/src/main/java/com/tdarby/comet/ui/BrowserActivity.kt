@@ -91,6 +91,7 @@ import com.tdarby.comet.support.UserAgentClientHints
 import com.tdarby.comet.update.ReleaseManifest
 import com.tdarby.comet.update.UpdateChecker
 import com.tdarby.comet.web.TabManager
+import com.tdarby.comet.web.TabMemoryPolicy
 import com.tdarby.comet.util.SearchEngines
 import com.tdarby.comet.util.UrlUtils
 import kotlinx.coroutines.Dispatchers
@@ -377,7 +378,9 @@ open class BrowserActivity : AppCompatActivity() {
                 e.applyPopupPolicy()
             },
             ui = callbacks,
-            onChanged = ::onTabsChanged
+            onChanged = ::onTabsChanged,
+            liveEngineBudget = TabMemoryPolicy.budgetFor(this),
+            rememberClosedTabs = !isIncognito
         )
 
         wireChrome()
@@ -755,6 +758,9 @@ open class BrowserActivity : AppCompatActivity() {
             getString(R.string.menu_zoom_out) to { engine.zoomOut() }
             ))
             if (!isIncognito) {
+                if (tabManager.hasClosedTab()) {
+                    add(getString(R.string.menu_reopen_closed_tab) to { tabManager.reopenClosedTab() })
+                }
                 add(3, getString(R.string.menu_history) to ::showHistory)
                 add(getString(if (bookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark) to
                     ::toggleBookmark)
@@ -940,6 +946,11 @@ open class BrowserActivity : AppCompatActivity() {
                     title
                 )
                 if (isSelected) setTypeface(typeface, Typeface.BOLD)
+                if (tabManager.isSuspended(tabIndex)) {
+                    alpha = 0.6f
+                    contentDescription = contentDescription.toString() + ". " +
+                        getString(R.string.tab_reloads_when_opened)
+                }
                 setOnClickListener { tabManager.select(tabIndex) }
                 setOnLongClickListener { tabManager.closeTab(tabIndex); true }
             }
@@ -1002,6 +1013,7 @@ open class BrowserActivity : AppCompatActivity() {
                 setBackgroundColor(0xFF20283A.toInt())
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 preview.thumbnail?.let(::setImageBitmap)
+                if (preview.suspended) alpha = 0.5f
             }
             val title = TextView(this).apply {
                 text = preview.title.take(36)
@@ -1015,6 +1027,13 @@ open class BrowserActivity : AppCompatActivity() {
                 setTextColor(0xB3FFFFFF.toInt())
                 textSize = 14f
                 maxLines = 1
+            }
+            val reloadNote = TextView(this).apply {
+                text = getString(R.string.tab_reloads_when_opened)
+                setTextColor(0xB3FFFFFF.toInt())
+                textSize = 14f
+                maxLines = 1
+                visibility = if (preview.suspended) View.VISIBLE else View.INVISIBLE
             }
             val open = Button(this).apply {
                 id = View.generateViewId()
@@ -1039,6 +1058,7 @@ open class BrowserActivity : AppCompatActivity() {
             card.addView(image)
             card.addView(title)
             card.addView(url)
+            card.addView(reloadNote)
             card.addView(open, LinearLayout.LayoutParams(dp(288), dp(52)).apply { topMargin = dp(10) })
             card.addView(close, LinearLayout.LayoutParams(dp(288), dp(52)).apply { topMargin = dp(6) })
             list.addView(card, LinearLayout.LayoutParams(dp(308), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
@@ -1388,10 +1408,10 @@ open class BrowserActivity : AppCompatActivity() {
                 // The popup guard and cosmetic CSS already injected stay in a loaded page, so a
                 // blocking or allowlist change needs a reload; other settings don't reload.
                 if (blockingState() != blockingBefore) {
-                    tabManager.forEachEngine { browser ->
-                        val url = browser.currentUrl()
-                        if (!url.isNullOrBlank() && url != HOME_URL) browser.reload()
-                    }
+                    // Reload the page in front now; other loaded tabs reload when next selected.
+                    val reloadable = { url: String? -> !url.isNullOrBlank() && url != HOME_URL }
+                    if (reloadable(engine.currentUrl())) engine.reload()
+                    tabManager.markStale(reloadable)
                 }
             }
             .setNegativeButton(R.string.action_cancel, null)
@@ -1963,10 +1983,19 @@ open class BrowserActivity : AppCompatActivity() {
         super.onPause()
     }
 
+    @Suppress("DEPRECATION")
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (::tabManager.isInitialized && level >= TRIM_MEMORY_RUNNING_LOW) {
-            tabManager.releaseInactiveEngines()
+        if (::tabManager.isInitialized) {
+            // Android 14+ no longer sends the RUNNING_* levels, so UI_HIDDEN (trim to the budget) and
+            // BACKGROUND and above (release every background engine) must do the work there.
+            if (level >= TRIM_MEMORY_BACKGROUND || level == TRIM_MEMORY_RUNNING_LOW ||
+                level == TRIM_MEMORY_RUNNING_CRITICAL
+            ) {
+                tabManager.releaseInactiveEngines()
+            } else if (level >= TRIM_MEMORY_UI_HIDDEN) {
+                tabManager.trimToBudget()
+            }
             if (binding.tabSwitcherOverlay.visibility == View.VISIBLE) rebuildTabSwitcher()
         }
     }

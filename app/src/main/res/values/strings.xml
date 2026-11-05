@@ -127,4 +127,8 @@
     <string name="error_ssl_title">Connection not private</string>
     <string name="error_renderer_title">This page stopped responding</string>
     <string name="error_message_with_url">%1$s\n\n%2$s</string>
+
+    <!-- w2-tabs: background tab memory -->
+    <string name="tab_reloads_when_opened">Reloads when opened</string>
+    <string name="menu_reopen_closed_tab">Reopen closed tab</string>
 </resources>

@@ -25,6 +25,8 @@ import com.tdarby.comet.data.TabSessionPolicy
  * @param init applies per-engine settings (site profile for the tab URL, blocking) right after creation.
  * @param ui receives events from the *active* tab only.
  * @param onChanged fired when the tab list/active tab/titles change (refresh the tab strip).
+ * @param liveEngineBudget most tabs that may keep a live engine at once (see [TabMemoryPolicy]).
+ * @param rememberClosedTabs keep the last closed tab's URL in memory for [reopenClosedTab] (off for private tabs).
  */
 class TabManager(
     private val container: FrameLayout,
@@ -32,7 +34,9 @@ class TabManager(
     private val create: (EngineCallbacks) -> BrowserEngine,
     private val init: (BrowserEngine, String) -> Unit,
     private val ui: EngineCallbacks,
-    private val onChanged: () -> Unit
+    private val onChanged: () -> Unit,
+    private val liveEngineBudget: Int = Int.MAX_VALUE,
+    private val rememberClosedTabs: Boolean = false
 ) {
     private inner class Tab {
         var engine: BrowserEngine? = null
@@ -40,11 +44,19 @@ class TabManager(
         var url: String = ""
         /** Set when a crashed renderer was replaced without loading; cleared when a page load starts. */
         var needsLoad = false
+        /** Activation order: larger = used more recently. */
+        var lastActive = 0L
+        /** A loaded background tab whose page must be reloaded the next time it is selected. */
+        var stale = false
+        /** Last picture of this tab taken while it was in front; kept only for a few background tabs. */
+        var thumbnail: Bitmap? = null
     }
 
     private val tabs = mutableListOf<Tab>()
     private var activeIndex = -1
     private var fullscreenOwner: Tab? = null
+    private var activationClock = 0L
+    private var lastClosed: TabSnapshot? = null
 
     val count: Int get() = tabs.size
     val activeEngine: BrowserEngine get() = requireNotNull(tabs[activeIndex].engine)
@@ -58,7 +70,9 @@ class TabManager(
         val title: String,
         val url: String,
         val active: Boolean,
-        val thumbnail: Bitmap?
+        val thumbnail: Bitmap?,
+        /** No live engine: the page loads again when the tab is opened. */
+        val suspended: Boolean = false
     )
 
     fun previews(width: Int, height: Int): List<TabPreview> = tabs.mapIndexed { index, tab ->
@@ -67,9 +81,16 @@ class TabManager(
             title = tab.title.ifBlank { tab.url.ifBlank { "New tab" } },
             url = tab.url,
             active = index == activeIndex,
-            thumbnail = tab.engine?.captureThumbnail(width, height)
+            thumbnail = when {
+                tab.engine == null -> tab.thumbnail
+                index == activeIndex -> tab.engine?.captureThumbnail(width, height)
+                else -> tab.thumbnail ?: tab.engine?.captureThumbnail(width, height)
+            },
+            suspended = tab.engine == null
         )
     }
+
+    fun isSuspended(index: Int): Boolean = tabs.getOrNull(index)?.engine == null
 
     fun newTab(url: String? = homeUrl) {
         val tab = Tab().apply { this.url = url.orEmpty() }
@@ -91,6 +112,11 @@ class TabManager(
         if (index !in tabs.indices) return
         val wasActive = index == activeIndex
         if (wasActive) detach(tabs[index])
+        if (rememberClosedTabs) {
+            tabs[index].takeIf { it.url.isNotBlank() && it.url != homeUrl }?.let {
+                lastClosed = TabSnapshot(it.url, it.title)
+            }
+        }
         tabs[index].engine?.destroy()
         tabs.removeAt(index)
         if (tabs.isEmpty()) {
@@ -106,6 +132,20 @@ class TabManager(
             activeIndex-- // keep the same active tab, fix its shifted index
         }
         onChanged()
+    }
+
+    fun hasClosedTab(): Boolean = lastClosed != null
+
+    /** Open the most recently closed tab's page in a new tab. False if there is none. */
+    fun reopenClosedTab(): Boolean {
+        val closed = lastClosed ?: return false
+        lastClosed = null
+        newTab(closed.url)
+        return true
+    }
+
+    fun forgetClosedTab() {
+        lastClosed = null
     }
 
     /** Rebuild every tab's engine (e.g. after the user switches engine type). */
@@ -128,12 +168,52 @@ class TabManager(
 
     /** Release background WebViews under memory pressure while retaining lightweight tab metadata. */
     fun releaseInactiveEngines() {
+        if (releaseEngines(0)) onChanged()
+    }
+
+    /** Release the least recently used background engines beyond the live-engine budget. */
+    fun trimToBudget() {
+        if (releaseEngines(liveEngineBudget)) onChanged()
+    }
+
+    /**
+     * Mark loaded background tabs whose URL matches [matches] so they reload when next selected.
+     * The active tab is not touched: the caller reloads it. Tabs without an engine load fresh anyway.
+     */
+    fun markStale(matches: (String) -> Boolean) {
         tabs.forEachIndexed { index, tab ->
-            if (index != activeIndex) {
-                tab.engine?.destroy()
-                tab.engine = null
-            }
+            if (index != activeIndex && tab.engine != null && matches(tab.url)) tab.stale = true
         }
+    }
+
+    private fun releaseEngines(budget: Int): Boolean {
+        val states = tabs.mapIndexed { index, tab ->
+            TabMemoryPolicy.TabState(
+                id = index,
+                lastActive = tab.lastActive,
+                isActive = index == activeIndex,
+                isFullscreenOwner = tab === fullscreenOwner,
+                isLive = tab.engine != null
+            )
+        }
+        val toRelease = TabMemoryPolicy.enginesToRelease(states, budget)
+        toRelease.forEach { releaseEngine(tabs[it]) }
+        return toRelease.isNotEmpty()
+    }
+
+    /** Destroy a background tab's engine; the tab keeps its URL and title and loads again when selected. */
+    private fun releaseEngine(tab: Tab) {
+        tab.engine?.destroy()
+        tab.engine = null
+        tab.stale = false
+    }
+
+    private fun rememberThumbnail(tab: Tab) {
+        tab.thumbnail = runCatching { tab.engine?.captureThumbnail(THUMB_WIDTH, THUMB_HEIGHT) }.getOrNull()
+        tabs.filter { it.thumbnail != null }
+            .sortedByDescending { it.lastActive }
+            .drop(MAX_THUMBNAILS)
+            .forEach { it.thumbnail = null }
     }
 
     fun destroyAll() {
@@ -141,6 +221,7 @@ class TabManager(
         tabs.forEach { it.engine?.destroy() }
         tabs.clear()
         activeIndex = -1
+        lastClosed = null
     }
 
     fun onResume() {
@@ -152,12 +233,20 @@ class TabManager(
     }
 
     private fun setActive(index: Int) {
-        if (activeIndex in tabs.indices) detach(tabs[activeIndex])
+        if (activeIndex in tabs.indices) {
+            rememberThumbnail(tabs[activeIndex])
+            detach(tabs[activeIndex])
+        }
         activeIndex = index
         val tab = tabs[index]
+        tab.lastActive = ++activationClock
+        tab.thumbnail = null
         val (engine, created) = ensureEngine(tab)
         attach(engine)
         if (created || tab.needsLoad) engine.loadUrl(tab.url.ifBlank { homeUrl })
+        else if (tab.stale) engine.reload()
+        tab.stale = false
+        releaseEngines(liveEngineBudget)
         ui.onNavigationStateChanged(engine.canGoBack(), engine.canGoForward())
         if (tab.url.isNotBlank()) ui.onUrlChanged(tab.url)
     }
@@ -193,6 +282,8 @@ class TabManager(
     private fun wrap(tab: Tab) = object : EngineCallbacks {
         override fun onPageStarted(url: String) {
             tab.needsLoad = false
+            tab.stale = false
+            tab.thumbnail = null
             tab.url = url
             if (isActive(tab)) ui.onPageStarted(url)
         }
@@ -299,18 +390,26 @@ class TabManager(
         }
     }
 
-    /** Rebuild one tab's engine in place (after a renderer crash) and reload its last URL. */
+    /**
+     * After a renderer crash: rebuild the active tab's engine in place and reload its last URL. A
+     * background tab only gives up its dead engine and loads when selected.
+     */
     private fun recreate(tab: Tab) {
         if (tab !in tabs) return
         val wasActive = isActive(tab)
+        if (!wasActive) {
+            releaseEngine(tab)
+            onChanged()
+            return
+        }
         val savedUrl = tab.url.ifBlank { homeUrl }
-        if (wasActive) detach(tab)
+        detach(tab)
         tab.engine?.destroy()
         tab.engine = null
         val (engine, _) = ensureEngine(tab)
-        if (wasActive) attach(engine)
-        tab.needsLoad = wasActive
-        if (wasActive) ui.onRendererRecovered(savedUrl) else engine.loadUrl(savedUrl)
+        attach(engine)
+        tab.needsLoad = true
+        ui.onRendererRecovered(savedUrl)
         onChanged()
     }
 
@@ -332,5 +431,12 @@ class TabManager(
         activeIndex = -1
         setActive(session.activeIndex)
         onChanged()
+    }
+
+    private companion object {
+        const val THUMB_WIDTH = 288
+        const val THUMB_HEIGHT = 162
+        /** Background tabs that may hold a saved thumbnail at once (RGB_565, ~90 KB each). */
+        const val MAX_THUMBNAILS = 4
     }
 }
