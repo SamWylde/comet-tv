@@ -47,6 +47,8 @@ redirect blocking below.)
 - An optional **strict "block all page redirects"** mode (off by default) cancels cross-site,
   page-initiated top navigations — the last resort against stream-page player redirects.
 - All layers (network / cosmetic / popup / redirect) are individually toggleable, with a per-site allowlist.
+  **Menu → This site** pauses single layers for one site until Comet closes and lists what was
+  blocked on the current page.
 - A future full-fidelity path (EasyList parser or `adblock-rust`) would need a filter-list
   **license review** first.
 
@@ -139,6 +141,14 @@ error instead of producing an unsigned APK. Outputs:
 - [x] M9 — per-site identity and viewport profiles, UA Client Hint consistency, diagnostics/support
   reports, isolated private tabs, complete browsing-data deletion, one-time size-limited blob transfers,
   origin-scoped camera/microphone/location permissions, and hardened fullscreen/popup handling
+- [x] M10 (v1.3.0) — D-pad video controls in fullscreen (play/pause, ±10 s, speed, live streams,
+  players inside frames from other sites), Continue watching, Send from phone (QR code + 6-digit
+  code, the TV confirms before opening), a This site panel (identity, viewport, text size, remote
+  mode, blocking pauses, blocked list), remote-button shortcuts, remote help, drag mode, Link
+  options for remotes without long-press, a Stop button, reopen closed tab, a memory budget that
+  suspends background tabs with thumbnails, bookmark organise/export/import, clearer download
+  failure reasons with remove or delete, a step-by-step update flow, and device facts in the
+  support report
 
 > Multi-tab browsing includes a visual thumbnail switcher with explicit close controls, and tabs
 > are restored across restarts. The native TV home screen provides large bookmark/recent-site tiles,

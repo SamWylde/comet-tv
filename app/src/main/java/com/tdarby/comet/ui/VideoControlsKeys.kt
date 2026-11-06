@@ -13,13 +13,17 @@ enum class VideoKeyAction {
     FOCUS_PREVIOUS,
     FOCUS_NEXT,
     ACTIVATE,
-    KEEP_VISIBLE
+    KEEP_VISIBLE,
+    /** BACK while the panel shows: close the panel and stay in fullscreen. */
+    HIDE
 }
 
 /**
  * Key rules of the video controls. With the panel hidden and remote control of fullscreen video on,
  * OK toggles play, LEFT/RIGHT seek, UP/DOWN only bring the panel up. With the panel showing, the
- * D-pad moves between its buttons and OK presses the focused one.
+ * D-pad moves between its buttons, OK presses the focused one and BACK closes the panel. BACK is
+ * taken here, not in the activity's back callback, because on Android 16 WebView's fullscreen view
+ * receives BACK first and would leave fullscreen.
  */
 object VideoControlsKeys {
     fun decide(keyCode: Int, panelVisible: Boolean, remoteActive: Boolean): VideoKeyAction {
@@ -32,6 +36,7 @@ object VideoControlsKeys {
                 keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN ->
                     VideoKeyAction.KEEP_VISIBLE
                 ok -> VideoKeyAction.ACTIVATE
+                keyCode == KeyEvent.KEYCODE_BACK -> VideoKeyAction.HIDE
                 else -> VideoKeyAction.NONE
             }
             !remoteActive -> VideoKeyAction.NONE

@@ -16,22 +16,26 @@ data class PlaybackSample(
 
 /**
  * Scripts for reading and seeking the page's main video for continue-watching. They reach the
- * main frame and same-origin iframes only; the main video is the largest visible one, playing
- * ones first.
+ * main frame and same-origin iframes only. The main video is scored the way [MediaPlayerChooser]
+ * scores players for the video controls, so a playing muted background loop or a tiny ad never
+ * wins over the real (paused) player.
  */
 object PlaybackScripts {
 
-    // Shared head: collects <video> elements and defines pick(filter).
+    // Shared head: collects <video> elements and defines pick(filter). The score mirrors
+    // MediaPlayerChooser.score; keep the two in step.
     private const val FIND =
         "var all=[];function c(d,n){try{all=all.concat(Array.from(d.querySelectorAll('video')));" +
             "if(n<3)Array.from(d.querySelectorAll('iframe')).forEach(function(f){" +
             "try{if(f.contentDocument)c(f.contentDocument,n+1);}catch(e){}});}catch(e){}}" +
             "c(document,0);" +
             "function area(v){try{var r=v.getBoundingClientRect();return r.width*r.height;}catch(e){return 0;}}" +
-            "function pick(ok){var best=null,bs=-1;all.forEach(function(v){if(!ok(v))return;" +
-            "var a=area(v);if(a<=0)return;" +
-            "var s=(!v.paused&&!v.ended?1e12:0)+(v.currentTime>0?1e9:0)+a;" +
-            "if(s>bs){bs=s;best=v;}});return best;}"
+            "function score(v){var a=area(v),s=0;if(!v.paused&&!v.ended)s+=4000;" +
+            "s+=a>=20000?1000+Math.min(a,2000000)/1000:-3500;" +
+            "if(v.readyState>=1||isFinite(v.duration))s+=300;if(!v.muted)s+=150;" +
+            "if(v.muted&&v.loop)s-=3000;if(v.error)s-=5000;if(v.ended)s-=200;return s;}" +
+            "function pick(ok){var best=null,bs=-Infinity;all.forEach(function(v){if(!ok(v))return;" +
+            "var s=score(v);if(s>bs){bs=s;best=v;}});return best;}"
 
     /** Reports the main video as JSON: {n, ready, live, paused, t, d}; n is how many videos exist. */
     val PROBE: String =

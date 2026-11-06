@@ -1,8 +1,13 @@
 package com.tdarby.comet.ui
 
+import android.app.Activity
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
+import androidx.annotation.RequiresApi
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.Button
@@ -29,6 +34,7 @@ import com.tdarby.comet.engine.PlaybackSpeeds
  * @param restoreFocus gives focus back to the page or the fullscreen video when the panel hides.
  */
 class VideoControlsOverlay(
+    activity: Activity,
     private val container: FrameLayout,
     private val engine: () -> BrowserEngine?,
     private val isFullscreen: () -> Boolean,
@@ -49,6 +55,9 @@ class VideoControlsOverlay(
     private var message: MediaFeedback = MediaFeedback.NONE
     private var heldSeekKey = KeyEvent.KEYCODE_UNKNOWN
     private val pressed = HashSet<Int>()
+
+    private val overlayBack =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) OverlayBack(activity) { hide() } else null
 
     private val hideTask = Runnable { hide() }
     private val clearMessageTask = Runnable { message = MediaFeedback.NONE; render() }
@@ -85,7 +94,11 @@ class VideoControlsOverlay(
         if (event.action == KeyEvent.ACTION_UP) {
             if (keyCode == heldSeekKey) heldSeekKey = KeyEvent.KEYCODE_UNKNOWN
             // The release of a key we used must not reach the app: it could click the page.
-            return pressed.remove(keyCode)
+            val used = pressed.remove(keyCode)
+            // BACK acts on release, like the rest of Android. With predictive back the overlay
+            // callback below has usually closed the panel already, and this does nothing.
+            if (used && keyCode == KeyEvent.KEYCODE_BACK) hide()
+            return used
         }
         var action = VideoControlsKeys.decide(keyCode, isVisible, remoteActive)
         // Holding LEFT/RIGHT keeps skipping even though the first press already raised the panel.
@@ -121,6 +134,7 @@ class VideoControlsOverlay(
                 (focusedButton() ?: playButton).performClick()
             }
             VideoKeyAction.KEEP_VISIBLE -> restartHideTimer()
+            VideoKeyAction.HIDE -> Unit // done on release, see ACTION_UP above
             VideoKeyAction.NONE -> Unit
         }
         return true
@@ -131,6 +145,7 @@ class VideoControlsOverlay(
         val wasVisible = isVisible
         message = if (wasVisible) message else MediaFeedback.NONE
         container.visibility = View.VISIBLE
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) overlayBack?.register()
         exitButton.visibility = if (isFullscreen()) View.VISIBLE else View.GONE
         render()
         focusOn.requestFocus()
@@ -147,6 +162,7 @@ class VideoControlsOverlay(
         handler.removeCallbacks(pollTask)
         handler.removeCallbacks(clearMessageTask)
         heldSeekKey = KeyEvent.KEYCODE_UNKNOWN
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) overlayBack?.unregister()
         if (!isVisible) return
         container.visibility = View.GONE
         restoreFocus()
@@ -155,6 +171,32 @@ class VideoControlsOverlay(
     /** Stops timers; the activity is going away. */
     fun release() {
         handler.removeCallbacksAndMessages(null)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) overlayBack?.unregister()
+    }
+
+    /**
+     * While the panel shows, BACK must close it. With predictive back (Android 16 for this target)
+     * the system hands BACK to the window's top back callback before any view sees the key, and
+     * WebView registers one during fullscreen that leaves fullscreen. An overlay-priority callback
+     * outranks it.
+     */
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    private class OverlayBack(private val activity: Activity, onBack: () -> Unit) {
+        private val callback = OnBackInvokedCallback { onBack() }
+        private var registered = false
+
+        fun register() {
+            if (registered) return
+            activity.onBackInvokedDispatcher
+                .registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_OVERLAY, callback)
+            registered = true
+        }
+
+        fun unregister() {
+            if (!registered) return
+            activity.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback)
+            registered = false
+        }
     }
 
     private fun run(command: MediaCommand) {

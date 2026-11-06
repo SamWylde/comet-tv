@@ -437,6 +437,7 @@ open class BrowserActivity : AppCompatActivity() {
         }
 
         videoControls = VideoControlsOverlay(
+            activity = this,
             container = binding.videoControlsContainer,
             engine = { if (tabManager.hasTabs) tabManager.activeEngine else null },
             isFullscreen = { isFullscreen },

@@ -45,7 +45,8 @@ class PlaybackResumeController(
     private data class Last(val url: String, val title: String, val sample: PlaybackSample)
 
     private val tick = Runnable { poll() }
-    private val autoDismiss = Runnable { dismissOffer(keepRecord = false) }
+    // Missing the prompt is not a choice: keep the spot (it is replaced once the video plays past 30 s).
+    private val autoDismiss = Runnable { dismissOffer(keepRecord = true) }
 
     /** Start (or continue) polling; safe to call from any hook as often as needed. */
     fun ensurePolling() {
@@ -193,7 +194,7 @@ class PlaybackResumeController(
         dialog.setOnDismissListener {
             handler.removeCallbacks(autoDismiss)
             if (offerDialog === dialog) offerDialog = null
-            // Resume keeps the record (it keeps updating); Start over, BACK and the timeout forget it.
+            // Resume and the timeout keep the record (it keeps updating); Start over and BACK forget it.
             if (!resumed && !offerKeepsRecord) store.drop(record.url)
         }
         offerDialog = dialog

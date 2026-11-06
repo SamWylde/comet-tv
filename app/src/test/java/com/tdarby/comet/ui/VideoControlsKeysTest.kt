@@ -30,6 +30,8 @@ class VideoControlsKeysTest {
             listOf(right, true, false, VideoKeyAction.FOCUS_NEXT),
             listOf(KeyEvent.KEYCODE_MENU, true, true, VideoKeyAction.NONE),
             listOf(KeyEvent.KEYCODE_BACK, false, true, VideoKeyAction.NONE),
+            // BACK closes the panel itself: WebView's own fullscreen BACK handling must not see it.
+            listOf(KeyEvent.KEYCODE_BACK, true, true, VideoKeyAction.HIDE),
         )
         cases.forEach { (key, showing, remote, expected) ->
             assertEquals("key $key showing=$showing remote=$remote", expected,
