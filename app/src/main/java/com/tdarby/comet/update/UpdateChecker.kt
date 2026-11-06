@@ -60,11 +60,17 @@ class UpdateChecker(private val context: Context) {
     /**
      * Download the APK to cache. [onProgress] gets whole percent values (only when the size is
      * known) from the IO thread. Cancelling the calling coroutine stops the copy and deletes the
-     * partial file. The result is unverified: [verify] must pass before installing.
+     * partial file; [apkFile] only ever holds a complete download. The result is unverified:
+     * [verify] must pass before installing.
      */
     suspend fun download(manifest: ReleaseManifest, onProgress: (Int) -> Unit = {}): DownloadResult =
         withContext(Dispatchers.IO) {
             val out = apkFile()
+            // Each attempt writes its own file and renames it at the end: a cancelled attempt can
+            // sit in read() until the read timeout, and must not write into or delete the file of
+            // the attempt that replaced it. Leftovers of a killed process go first.
+            context.cacheDir.listFiles { f -> f.name.startsWith(PART_PREFIX) }?.forEach { it.delete() }
+            val part = File(context.cacheDir, "$PART_PREFIX${System.nanoTime()}.part")
             try {
                 val conn = (URL(manifest.apkUrl).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 15_000
@@ -77,7 +83,7 @@ class UpdateChecker(private val context: Context) {
                 var done = 0L
                 var lastPercent = -1
                 conn.inputStream.use { input ->
-                    out.outputStream().use { sink ->
+                    part.outputStream().use { sink ->
                         val buffer = ByteArray(16 * 1024)
                         while (true) {
                             ensureActive()
@@ -92,12 +98,14 @@ class UpdateChecker(private val context: Context) {
                         }
                     }
                 }
+                ensureActive()
+                if (!part.renameTo(out)) error("could not move the download into place")
                 DownloadResult.Done(out)
             } catch (e: CancellationException) {
-                out.delete()
+                part.delete()
                 throw e
             } catch (e: Exception) {
-                out.delete()
+                part.delete()
                 DownloadResult.Failed(
                     noNetwork = e is UnknownHostException || e is ConnectException || e is SocketTimeoutException
                 )
@@ -155,5 +163,8 @@ class UpdateChecker(private val context: Context) {
         // (/releases/download/vX.Y.Z/...) and is updated only after that release's assets exist.
         const val MANIFEST_URL =
             "https://raw.githubusercontent.com/SamWylde/comet-tv/main/dist/latest.json"
+
+        /** Names of in-progress downloads (`comet-update-<n>.part`); the finished file has none of it. */
+        private const val PART_PREFIX = "comet-update-"
     }
 }

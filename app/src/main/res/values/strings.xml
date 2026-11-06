@@ -101,8 +101,6 @@
     <string name="update_available">Update available: %s</string>
     <string name="update_install">Install</string>
     <string name="update_none">You\'re up to date</string>
-    <string name="update_check_failed">Couldn\'t check for updates</string>
-    <string name="update_downloading">Downloading update…</string>
     <string name="update_failed">Update download failed</string>
     <string name="update_install_failed">Couldn\'t open the installer. Try again, or update Comet with the Downloader app (code 2453488).</string>
     <string name="startup_loading">Starting Comet…</string>
@@ -136,6 +134,8 @@
     <string name="bookmarks_exported">Bookmarks exported: %1$d. The file is in Downloads: %2$s</string>
     <string name="bookmarks_export_failed">Couldn’t save the bookmarks file</string>
     <string name="bookmarks_import_none">No Comet bookmark files in Downloads. Export bookmarks first, or copy a backup into Downloads.</string>
+    <!-- Android 10 and later, on a TV with no file picker: other apps' files in Downloads can't be seen. -->
+    <string name="bookmarks_import_none_own">No Comet bookmark files in Downloads. This TV has no file picker, so Comet can only open backups it exported itself since it was installed.</string>
     <string name="bookmarks_import_failed">Couldn’t read that file</string>
     <string name="bookmarks_import_invalid">That isn’t a Comet bookmarks file</string>
     <string name="bookmarks_import_too_large">That file is too big to be a bookmarks backup (limit 1 MB)</string>

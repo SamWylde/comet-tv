@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.annotation.RequiresApi
 import com.tdarby.comet.data.BookmarkTransfer
 import java.io.File
 import java.text.SimpleDateFormat
@@ -20,6 +21,7 @@ data class BookmarkExportFile(val name: String, val uri: Uri)
 /** Reads and writes bookmark export files in the device's Downloads folder. Call off the main thread. */
 object BookmarkFiles {
     private const val NAME_PREFIX = "comet-bookmarks"
+    private const val MAX_LISTED = 20
 
     fun newFileName(now: Date = Date()): String =
         "$NAME_PREFIX-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(now) + ".json"
@@ -55,13 +57,26 @@ object BookmarkFiles {
         true
     }.getOrDefault(false)
 
-    /** Comet export files in Downloads, newest first. */
+    /**
+     * Comet export files in Downloads, newest first. Android 10 and later show an app only the
+     * files it saved there itself; Android 9 reads the folder, so a copied-in backup is found too.
+     */
     fun listExports(context: Context): List<BookmarkExportFile> = runCatching {
-        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            MediaStore.Downloads.EXTERNAL_CONTENT_URI
-        } else {
-            MediaStore.Files.getContentUri("external")
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) listFromMediaStore(context) else listFromFolder()
+    }.getOrDefault(emptyList())
+
+    /** Android 9: read the folder itself; a file just written there isn't in MediaStore until it is scanned. */
+    private fun listFromFolder(): List<BookmarkExportFile> {
+        @Suppress("DEPRECATION")
+        val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        return dir.listFiles { f -> f.isFile && f.name.startsWith(NAME_PREFIX) && f.name.endsWith(".json") }
+            .orEmpty().sortedByDescending { it.lastModified() }.take(MAX_LISTED)
+            .map { BookmarkExportFile(it.name, Uri.fromFile(it)) }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun listFromMediaStore(context: Context): List<BookmarkExportFile> {
+        val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
         val out = mutableListOf<BookmarkExportFile>()
         context.contentResolver.query(
             collection,
@@ -70,12 +85,12 @@ object BookmarkFiles {
             arrayOf("$NAME_PREFIX%.json"),
             "${MediaStore.MediaColumns.DATE_ADDED} DESC"
         )?.use { c ->
-            while (c.moveToNext() && out.size < 20) {
+            while (c.moveToNext() && out.size < MAX_LISTED) {
                 out.add(BookmarkExportFile(c.getString(1), ContentUris.withAppendedId(collection, c.getLong(0))))
             }
         }
-        out
-    }.getOrDefault(emptyList())
+        return out
+    }
 
     /** The file's text, or null when it can't be read. A file over the size limit comes back truncated past the limit. */
     fun read(context: Context, uri: Uri): ReadResult? = runCatching {

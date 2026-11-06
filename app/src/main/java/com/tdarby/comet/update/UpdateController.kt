@@ -132,7 +132,8 @@ class UpdateController(
             is UpdateState.Failed -> {
                 primary = R.string.update_retry to when (s.error) {
                     UpdateError.CHECK_FAILED -> ({ check(manual = true) })
-                    UpdateError.INSTALLER_UNAVAILABLE -> ::install
+                    // Back through Ready, which is where the installer's outcome is tracked.
+                    UpdateError.INSTALLER_UNAVAILABLE -> ::retryInstall
                     else -> ::startDownload
                 }
                 activity.getString(

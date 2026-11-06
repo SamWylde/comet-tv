@@ -48,7 +48,8 @@ object HandoffRequestParser {
             tail = (tail shl 8) or b
             if (tail == CRLF_CRLF) break
         }
-        val lines = head.toString(Charsets.ISO_8859_1).dropLast(4).split("\r\n")
+        // Not head.toString(Charset): that overload needs API 33 and crashes older TVs.
+        val lines = String(head.toByteArray(), Charsets.ISO_8859_1).dropLast(4).split("\r\n")
         if (lines.any { it.contains('\r') || it.contains('\n') || it.contains('\u0000') }) {
             return ParseResult.Rejected(400)
         }

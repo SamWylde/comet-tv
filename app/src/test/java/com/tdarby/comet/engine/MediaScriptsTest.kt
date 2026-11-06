@@ -247,4 +247,30 @@ class MediaPlaybackTest {
         nothing.run(MediaCommand.TogglePlay) { outcome = it }
         assertEquals(MediaFeedback.NO_VIDEO, outcome?.feedback)
     }
+
+    @Test fun theOnceASecondRefreshNeverReplacesAPressWaitingForASlowPlayer() {
+        var player = item(paused = true)
+        val acted = ArrayList<MediaOp>()
+        var answer: (() -> Unit)? = null
+        val slow = object : MediaTransport {
+            override fun query(result: (List<Observed>) -> Unit) = result(listOf(Observed("f0", player)))
+            override fun act(target: Observed, op: MediaOp, result: (MediaReply?) -> Unit) {
+                acted += op
+                answer = {
+                    player = player.copy(paused = op == MediaOp.Pause)
+                    result(MediaReply(true, player))
+                }
+            }
+        }
+        val controller = MediaController(slow) { 0L }
+        var refreshed: MediaOutcome? = null
+
+        controller.run(MediaCommand.Play) {}
+        controller.run(MediaCommand.Pause) {}
+        controller.run(MediaCommand.Refresh) { refreshed = it }
+        answer!!() // the page confirms Play; the waiting Pause runs next
+        answer!!() // and confirms the Pause
+        assertEquals(listOf(MediaOp.Play, MediaOp.Pause), acted)
+        assertFalse("the refresh is answered with the state after the pause", refreshed?.status?.playing ?: true)
+    }
 }

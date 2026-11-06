@@ -41,6 +41,8 @@ class PlaybackResumeController(
 
     private var offerDialog: AlertDialog? = null
     private var offerKeepsRecord = false
+    /** A page whose record was offered and kept: it is only replaced by a new save, never dropped. */
+    private var keptUrl: String? = null
 
     private data class Last(val url: String, val title: String, val sample: PlaybackSample)
 
@@ -54,6 +56,16 @@ class PlaybackResumeController(
         if (running || !inForeground || !enabled() || !pageShown() || pageKey == null) return
         running = true
         handler.postDelayed(tick, FIRST_DELAY_MS)
+    }
+
+    /**
+     * A load began. A reload of the same address starts its video over, so it gets the resume
+     * offer like a new page (a video already near its saved spot is not offered again).
+     */
+    fun onPageStarted() {
+        if (offerDialog != null) return
+        flushCached()
+        resolved = false
     }
 
     /** A page finished loading: it may have a video now, so poll again even if it had none before. */
@@ -95,6 +107,7 @@ class PlaybackResumeController(
         pageKey = null
         resolved = false
         lastSavedAt = 0L
+        keptUrl = null
     }
 
     fun destroy() {
@@ -128,7 +141,8 @@ class PlaybackResumeController(
         webView.evaluateJavascript(PlaybackScripts.PROBE) { raw -> onProbe(url, PlaybackScripts.parse(raw)) }
         if (emptyStreak >= MAX_EMPTY_POLLS) return
         running = true
-        handler.postDelayed(tick, if (resolved) POLL_MS else QUICK_POLL_MS)
+        // Quick until a video is seen; a page with only a short one keeps the slow pace too.
+        handler.postDelayed(tick, if (resolved || last != null) POLL_MS else QUICK_POLL_MS)
     }
 
     private fun onProbe(url: String, sample: PlaybackSample?) {
@@ -142,7 +156,8 @@ class PlaybackResumeController(
         if (!sample.ready || sample.live) return
         val title = e.currentTitle().orEmpty()
 
-        if (!resolved) {
+        // A short ad before the film can't be the recorded video: wait for one long enough to track.
+        if (!resolved && PlaybackResumePolicy.isTrackable(sample.duration, sample.live)) {
             resolved = true
             val record = store.find(url)
             if (record != null && PlaybackResumePolicy.shouldOffer(record, sample.duration, sample.position)) {
@@ -171,8 +186,12 @@ class PlaybackResumeController(
                 if (!PlaybackResumePolicy.saveDue(lastSavedAt, now, force)) return
                 lastSavedAt = now
                 store.save(PlaybackRecord(url, title.ifBlank { url }, sample.position, sample.duration, now))
+                if (url == keptUrl) keptUrl = null
             }
-            ResumeAction.DROP -> store.drop(url)
+            // A kept record survives the first 30 s (the offer was left unanswered, or a resume
+            // didn't take); finishing the video still forgets it.
+            ResumeAction.DROP ->
+                if (url != keptUrl || sample.position >= PlaybackResumePolicy.EDGE_SECONDS) store.drop(url)
             ResumeAction.IGNORE -> Unit
         }
     }
@@ -194,8 +213,9 @@ class PlaybackResumeController(
         dialog.setOnDismissListener {
             handler.removeCallbacks(autoDismiss)
             if (offerDialog === dialog) offerDialog = null
-            // Resume and the timeout keep the record (it keeps updating); Start over and BACK forget it.
-            if (!resumed && !offerKeepsRecord) store.drop(record.url)
+            // Resume and the timeout keep the record until playback saves a new spot; Start over and
+            // BACK forget it.
+            if (resumed || offerKeepsRecord) keptUrl = record.url else store.drop(record.url)
         }
         offerDialog = dialog
         dialog.show()

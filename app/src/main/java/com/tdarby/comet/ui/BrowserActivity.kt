@@ -61,6 +61,7 @@ import androidx.webkit.WebViewFeature
 import com.tdarby.comet.BuildConfig
 import com.tdarby.comet.R
 import com.tdarby.comet.adblock.AdBlocker
+import com.tdarby.comet.adblock.BlockLayer
 import com.tdarby.comet.data.SettingsStore
 import com.tdarby.comet.data.ResolvedSiteBrowsingSettings
 import com.tdarby.comet.data.SiteBrowsingPolicy
@@ -1147,7 +1148,8 @@ open class BrowserActivity : AppCompatActivity() {
             if (!child.hasFocus()) continue
             if (i >= oldCards) focusedNewTab = true else {
                 focusedCard = i
-                focusedClose = (child as? ViewGroup)?.getChildAt(4)?.hasFocus() == true
+                // Close is the card's last view.
+                focusedClose = (child as? ViewGroup)?.run { getChildAt(childCount - 1) }?.hasFocus() == true
             }
         }
         list.removeAllViews()
@@ -1396,7 +1398,18 @@ open class BrowserActivity : AppCompatActivity() {
         val list = {
             lifecycleScope.launch {
                 val files = withContext(Dispatchers.IO) { BookmarkFiles.listExports(this@BrowserActivity) }
-                if (files.isEmpty()) { toast(R.string.bookmarks_import_none); return@launch }
+                if (files.isEmpty()) {
+                    // A dialog, not a toast: Android 12 and later cut a toast to two lines.
+                    AlertDialog.Builder(this@BrowserActivity)
+                        .setTitle(R.string.bookmarks_import)
+                        .setMessage(
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) R.string.bookmarks_import_none_own
+                            else R.string.bookmarks_import_none
+                        )
+                        .setPositiveButton(R.string.action_close, null)
+                        .show()
+                    return@launch
+                }
                 AlertDialog.Builder(this@BrowserActivity)
                     .setTitle(R.string.bookmarks_import)
                     .setItems(files.map { it.name }.toTypedArray()) { _, which -> importBookmarksFrom(files[which].uri) }
@@ -1744,7 +1757,9 @@ open class BrowserActivity : AppCompatActivity() {
     private fun applySiteControls(host: String, result: SiteControlsDialog.Result) {
         val allowedBefore = AdBlocker.isAllowlisted(host)
         val pausedBefore = AdBlocker.exceptions.pausedLayers(host)
-        AdBlocker.exceptions.setPausedLayers(host, result.paused)
+        val entriesBefore = exceptionEntriesCovering(host)
+        // Setting the same pauses again would still narrow a parent domain's pause to this host.
+        if (result.paused != pausedBefore) AdBlocker.exceptions.setPausedLayers(host, result.paused)
         if (!isIncognito) {
             val allowChanged = result.allowAds != allowedBefore
             if (allowChanged && result.allowAds) {
@@ -1774,12 +1789,23 @@ open class BrowserActivity : AppCompatActivity() {
             applyBrowsingSettings(browser, AdBlocker.hostOf(browser.currentUrl()))
         }
         syncRemoteMode(currentHost)
-        if (result.allowAds != allowedBefore || result.paused != pausedBefore) reloadSiteTabs(host)
+        if (result.allowAds != allowedBefore || result.paused != pausedBefore) {
+            // Lifting an exception can remove a parent domain's entry that covered [host], which
+            // changes the parent's other subdomains too, so their tabs are reloaded as well.
+            reloadSiteTabs(setOf(host) + (entriesBefore - exceptionEntriesCovering(host)))
+        }
     }
 
-    /** Reload the tabs showing [host] or one of its subdomains, the reach of an allowlist or pause. */
-    private fun reloadSiteTabs(host: String) {
-        val onSite = { url: String? -> AdBlocker.hostOf(url)?.let { AdBlocker.covers(host, it) } == true }
+    /** Allowlist and pause entries that reach [host]: the host itself or a parent domain. */
+    private fun exceptionEntriesCovering(host: String): Set<String> =
+        AdBlocker.coveringEntries(AdBlocker.currentAllowlist(), host) +
+            BlockLayer.entries.flatMap { AdBlocker.exceptions.hostsFor(it) }.filter { AdBlocker.covers(it, host) }
+
+    /** Reload the tabs showing one of [roots] or a subdomain, the reach of an allowlist or pause. */
+    private fun reloadSiteTabs(roots: Set<String>) {
+        val onSite = { url: String? ->
+            AdBlocker.hostOf(url)?.let { tabHost -> roots.any { AdBlocker.covers(it, tabHost) } } == true
+        }
         if (onSite(engine.currentUrl())) engine.reload()
         tabManager.markStale(onSite)
     }
@@ -2273,6 +2299,7 @@ open class BrowserActivity : AppCompatActivity() {
             setLoadingUi(true)
             hideErrorPanel()
             if (url != HOME_URL) hideHome()
+            resumeController?.onPageStarted()
             resumeController?.ensurePolling()
         }
 

@@ -74,10 +74,14 @@ class MediaController(
         run(next.command) { result -> next.callbacks.forEach { it(result) } }
     }
 
-    private fun merge(queued: MediaCommand, incoming: MediaCommand): MediaCommand =
-        if (queued is MediaCommand.Seek && incoming is MediaCommand.Seek) {
+    private fun merge(queued: MediaCommand, incoming: MediaCommand): MediaCommand = when {
+        queued is MediaCommand.Seek && incoming is MediaCommand.Seek ->
             MediaCommand.Seek(queued.deltaSeconds + incoming.deltaSeconds)
-        } else incoming
+        // The controls refresh every second; that must never replace a press still waiting to run.
+        // The queued command reports the state anyway.
+        incoming == MediaCommand.Refresh -> queued
+        else -> incoming
+    }
 }
 
 /**
