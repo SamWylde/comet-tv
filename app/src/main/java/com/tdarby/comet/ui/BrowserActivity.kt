@@ -860,7 +860,7 @@ open class BrowserActivity : AppCompatActivity() {
             add(getString(R.string.menu_close_tab) to { tabManager.closeActive() })
             if (normal) add(getString(R.string.menu_new_private_tab) to ::openPrivateTab)
             add(getString(R.string.menu_voice) to ::launchVoiceSearch)
-            add(getString(R.string.menu_video_controls) to { videoControls.show() })
+            add(getString(R.string.menu_video_controls) to ::showVideoControls)
             add(getString(R.string.menu_link_options) to ::showLinkOptionsAtCursor)
             add(getString(R.string.menu_drag_mode) to ::startDragMode)
             add(getString(R.string.menu_zoom_in) to { engine.zoomIn() })
@@ -877,6 +877,13 @@ open class BrowserActivity : AppCompatActivity() {
             .setItems(actions.map { it.first }.toTypedArray()) { _, which -> actions[which].second() }
             .setNegativeButton(R.string.action_close, null)
             .show()
+    }
+
+    private fun showVideoControls() {
+        // The panel takes focus from the address bar on purpose; without this the address bar's
+        // focus-loss handler would move focus on to the ⋮ button a moment later.
+        addressBarActive = false
+        videoControls.show()
     }
 
     private fun showSendFromPhone() {
@@ -1990,7 +1997,7 @@ open class BrowserActivity : AppCompatActivity() {
             RemoteAction.LINK_OPTIONS -> showLinkOptionsAtCursor()
             RemoteAction.DRAG_MODE -> startDragMode()
             RemoteAction.REOPEN_CLOSED_TAB -> if (!isIncognito && tabManager.hasClosedTab()) tabManager.reopenClosedTab()
-            RemoteAction.VIDEO_CONTROLS -> videoControls.show()
+            RemoteAction.VIDEO_CONTROLS -> showVideoControls()
         }
     }
 
