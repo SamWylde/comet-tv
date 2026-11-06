@@ -83,13 +83,7 @@
     <string name="ctx_copied">Link copied</string>
     <string name="blocked_redirect">Blocked a redirect</string>
     <string name="hint_title">Using Comet with your remote</string>
-    <string name="hint_body">• Press DOWN from the address bar or toolbar to enter the page.
-• The D-pad then moves the pointer; press OK to click.
-• Press BACK once to return to the address bar, then again to go back.
-• Press the remote MENU key, or move right through the toolbar, for browser options.
-• Long-press OK on a link or image for more options. If your remote can’t long-press, use Menu &gt; Link options.
-• In a fullscreen video, press OK or the arrows to show the video controls.
-• Too much typing? Menu &gt; Send from phone opens a link you send from your phone.</string>
+    <string name="hint_body">• Press DOWN from the address bar or toolbar to enter the page.\n• The D-pad then moves the pointer; press OK to click.\n• Press BACK once to return to the address bar, then again to go back.\n• Press the remote MENU key, or move right through the toolbar, for browser options.\n• Long-press OK on a link or image for more options. If your remote can’t long-press, use Menu &gt; Link options.\n• In a fullscreen video, press OK or the arrows to show the video controls.\n• Too much typing? Menu &gt; Send from phone opens a link you send from your phone.</string>
     <string name="hint_got_it">Got it</string>
     <string name="bookmarks_empty">No bookmarks yet</string>
     <string name="history_empty">No history yet</string>
@@ -253,9 +247,7 @@
     <string name="handoff_ended_expired">This ended after 10 minutes. Close it and choose Send from phone again for a new code.</string>
     <string name="handoff_ended_locked">This was stopped after too many wrong codes. Close it and choose Send from phone again for a new code.</string>
     <string name="handoff_confirm_title">Link from your phone</string>
-    <string name="handoff_confirm_message">Open this from your phone?
-
-%1$s</string>
+    <string name="handoff_confirm_message">Open this from your phone?\n\n%1$s</string>
     <string name="handoff_open_new_tab">Open in new tab</string>
 
     <!-- w1-video: video controls -->

@@ -103,9 +103,10 @@ class HandoffController(
             setPadding(0, dp(12), 0, 0)
         }
         val code = TextView(activity).apply {
-            textSize = 28f
+            // Sized so "Code: 123456" fits on one line beside the QR code.
+            textSize = 24f
             setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
-            letterSpacing = 0.15f
+            letterSpacing = 0.1f
             setPadding(0, dp(8), 0, 0)
         }
         qrView = qr
