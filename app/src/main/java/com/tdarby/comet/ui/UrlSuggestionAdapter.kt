@@ -18,7 +18,8 @@ object UrlSuggestions {
      * Candidates whose title or URL contains every word of [query], capped at [limit]. Bookmarks come
      * before history; within each, entries that start with the query (title, or URL without scheme
      * and "www.") come before substring matches. Order inside a rank follows the input order. A URL
-     * listed as a bookmark and in history appears once, as the bookmark.
+     * listed as a bookmark and in history appears once, as the bookmark. A URL equal to the query is
+     * left out.
      */
     fun match(query: String, candidates: List<SuggestionCandidate>, limit: Int = MAX_SUGGESTIONS): List<SuggestionCandidate> {
         val q = query.trim().lowercase()
@@ -28,6 +29,8 @@ object UrlSuggestions {
         return candidates
             .asSequence()
             .filter { it.url.isNotBlank() && (it.bookmark || it.url !in bookmarkUrls) }
+            // The page whose URL is already in the bar is no suggestion.
+            .filter { it.url.lowercase() != q }
             .distinctBy { it.url to it.bookmark }
             .mapNotNull { c ->
                 val url = c.url.lowercase()

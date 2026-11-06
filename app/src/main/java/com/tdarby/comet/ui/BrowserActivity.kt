@@ -1358,6 +1358,12 @@ open class BrowserActivity : AppCompatActivity() {
     private fun startBookmarkImport() {
         if (isIncognito) return
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+        // Android TV answers this with a stub that only says "You don't have an app that can do this".
+        val picker = intent.resolveActivity(packageManager)?.packageName
+        if (picker == null || picker == TV_INTENT_STUBS) {
+            showBookmarkExportFiles()
+            return
+        }
         try {
             bookmarkImportLauncher.launch(intent)
         } catch (_: android.content.ActivityNotFoundException) {
@@ -1796,8 +1802,9 @@ open class BrowserActivity : AppCompatActivity() {
         // In fullscreen video, let the now-focused player view handle D-pad/OK natively.
         if (isFullscreen) return super.dispatchKeyEvent(event)
         if (binding.tabSwitcherOverlay.visibility == View.VISIBLE) return super.dispatchKeyEvent(event)
-        // User-assigned remote buttons; never while typing or dragging.
-        if (!cursor.inDragMode && currentFocus !is EditText) {
+        // User-assigned remote buttons; never while dragging, and in the address bar only for
+        // buttons that don't type (a number key types its digit there).
+        if (!cursor.inDragMode && (currentFocus !is EditText || !event.isPrintingKey)) {
             remoteShortcuts.actionFor(event.keyCode)?.let { action ->
                 if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) runRemoteAction(action)
                 return true
@@ -2001,8 +2008,15 @@ open class BrowserActivity : AppCompatActivity() {
         }
     }
 
-    private fun keyLabel(keyCode: Int): String =
-        KeyEvent.keyCodeToString(keyCode).removePrefix("KEYCODE_").replace('_', ' ')
+    /** "Red button", or Android's own name in sentence case ("Channel up", "F1"). */
+    private fun keyLabel(keyCode: Int): String = when (keyCode) {
+        KeyEvent.KEYCODE_PROG_RED -> getString(R.string.key_red)
+        KeyEvent.KEYCODE_PROG_GREEN -> getString(R.string.key_green)
+        KeyEvent.KEYCODE_PROG_YELLOW -> getString(R.string.key_yellow)
+        KeyEvent.KEYCODE_PROG_BLUE -> getString(R.string.key_blue)
+        else -> KeyEvent.keyCodeToString(keyCode).removePrefix("KEYCODE_").replace('_', ' ')
+            .lowercase().replaceFirstChar { it.uppercase() }
+    }
 
     private fun shortcutLine(keyCode: Int, action: RemoteAction): String =
         getString(R.string.remote_buttons_saved, keyLabel(keyCode), getString(action.labelRes))
@@ -2590,6 +2604,7 @@ open class BrowserActivity : AppCompatActivity() {
         private const val KEY_PRIVATE_URLS = "private_urls"
         private const val KEY_PRIVATE_TITLES = "private_titles"
         private const val KEY_PRIVATE_ACTIVE = "private_active"
+        private const val TV_INTENT_STUBS = "com.android.tv.frameworkpackagestubs"
         private const val KEY_PENDING_LINK = "pending_link"
         private const val HOME_URL = "about:blank"
         private const val HOME_TILE_LIMIT = 8

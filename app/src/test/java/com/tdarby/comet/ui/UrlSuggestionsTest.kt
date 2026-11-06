@@ -22,6 +22,9 @@ class UrlSuggestionsTest {
         assertEquals(listOf("https://other.example"), urls("other.ex", pool))
         assertEquals(listOf("https://example.com/forecast"), urls("weather forecast", pool))
         assertEquals(emptyList<String>(), urls("   ", pool))
+        // The address bar already showing a page's URL must not suggest that same page.
+        assertEquals(emptyList<String>(), urls("https://other.example", pool))
+        assertEquals(listOf("https://other.example/more"), urls("https://other.example", pool + hist("More", "https://other.example/more")))
     }
 
     @Test

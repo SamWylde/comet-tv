@@ -328,9 +328,10 @@ class CursorController(
     }
 
     private fun updatePointer() {
-        // Arrow hotspot is the top-left, so place the image's top-left at (x, y).
-        pointer.translationX = x
-        pointer.translationY = y
+        // The arrow's tip is at (4, 2) of ic_cursor's 24-unit box; put the tip exactly on (x, y),
+        // where taps land.
+        pointer.translationX = x - pointerSize * 4f / 24f
+        pointer.translationY = y - pointerSize * 2f / 24f
     }
 
     private fun dp(value: Int): Int = (value * density).toInt()

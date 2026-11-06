@@ -41,6 +41,15 @@
         android:name="android.software.leanback"
         android:required="true" />
 
+    <!-- Lets bookmark import see whether the TV has a real file picker (most only have a stub). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.OPEN_DOCUMENT" />
+            <category android:name="android.intent.category.OPENABLE" />
+            <data android:mimeType="*/*" />
+        </intent>
+    </queries>
+
     <application
         android:name=".CometApp"
         android:allowBackup="false"

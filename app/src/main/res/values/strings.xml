@@ -201,6 +201,10 @@
     <string name="remote_buttons_remove_title">Remove shortcut?</string>
     <string name="remote_buttons_remove">Remove</string>
     <string name="remote_buttons_saved">%1$s → %2$s</string>
+    <string name="key_red">Red button</string>
+    <string name="key_green">Green button</string>
+    <string name="key_yellow">Yellow button</string>
+    <string name="key_blue">Blue button</string>
     <string name="remote_help_shortcuts">Your remote button shortcuts:</string>
     <string name="remote_help_no_shortcuts">No shortcuts yet. To give a spare remote button a job, go to Settings &gt; Remote buttons.</string>
     <string name="drag_banner_armed">Drag mode: move to what you want to drag, then press OK to pick it up. BACK cancels.</string>
