@@ -1279,7 +1279,11 @@ open class BrowserActivity : AppCompatActivity() {
         }
         val builder = AlertDialog.Builder(this).setTitle(R.string.menu_bookmarks)
         if (items.isEmpty()) builder.setMessage(R.string.bookmarks_empty)
-        else builder.setItems(items.map { it.title }.toTypedArray()) { _, which -> showBookmarkActions(items[which].url) }
+        // Private windows run in their own process with their own copy of the list; letting them edit
+        // it would race the normal window's saves, so there a bookmark only opens.
+        else builder.setItems(items.map { it.title }.toTypedArray()) { _, which ->
+            if (isIncognito) engine.loadUrl(items[which].url) else showBookmarkActions(items[which].url)
+        }
         if (!isIncognito) {
             builder.setNeutralButton(R.string.bookmarks_export) { _, _ -> exportBookmarks() }
             builder.setPositiveButton(R.string.bookmarks_import) { _, _ -> startBookmarkImport() }
