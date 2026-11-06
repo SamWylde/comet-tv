@@ -161,6 +161,7 @@
     <string name="update_error_checksum">The downloaded file didn’t match the published release, so Comet didn’t install it. Try again.</string>
     <string name="menu_update_pending">Update available: %s</string>
     <string name="dl_remove_from_list">Remove from list (keep the file)</string>
+    <string name="dl_remove_failed">Remove from list</string>
     <string name="dl_delete_file">Delete file</string>
     <string name="dl_delete_confirm">Delete %s from this TV? This can’t be undone.</string>
     <string name="dl_reason_no_space">not enough storage space</string>

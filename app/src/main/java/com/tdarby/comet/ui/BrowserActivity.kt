@@ -294,6 +294,8 @@ open class BrowserActivity : AppCompatActivity() {
 
     /** The active tab's engine. A getter keeps every call site engine-agnostic and tab-aware. */
     private val engine: BrowserEngine get() = tabManager.activeEngine
+    /** The tab whose address the address bar was last set to show (see onTabsChanged). */
+    private var urlBarEngine: BrowserEngine? = null
 
     private var desktopMode = false
     private var siteBrowsingSettings: Map<String, SiteBrowsingSettings> = emptyMap()
@@ -849,8 +851,10 @@ open class BrowserActivity : AppCompatActivity() {
             add(getString(R.string.menu_home) to ::showHome)
             if (normal) add(getString(R.string.menu_history) to ::showHistory)
             add(getString(R.string.menu_bookmarks) to ::showBookmarks)
-            if (normal) add(getString(if (bookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark) to
-                ::toggleBookmark)
+            // Home has nothing to bookmark (the item used to do nothing there).
+            if (normal && !homeVisible && url != null && url != HOME_URL) add(
+                getString(if (bookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark) to ::toggleBookmark
+            )
             add(getString(R.string.menu_downloads) to ::showDownloads)
             add(getString(R.string.menu_send_from_phone) to ::showSendFromPhone)
             add(getString(R.string.menu_new_tab) to ::openNewTab)
@@ -1040,6 +1044,16 @@ open class BrowserActivity : AppCompatActivity() {
     }
 
     private fun onTabsChanged() {
+        // Another tab came to the front (a link from outside, the tab switcher): show its address
+        // even if the address bar has focus, which otherwise keeps page loads from changing it.
+        if (tabManager.hasTabs && engine !== urlBarEngine) {
+            urlBarEngine = engine
+            val url = tabManager.activeUrl()
+            if (url != binding.urlBar.text?.toString()) {
+                binding.urlBar.setText(if (url == HOME_URL) "" else url)
+                binding.urlBar.setSelection(binding.urlBar.length())
+            }
+        }
         currentFailure?.takeIf { it.url != tabManager.activeUrl() }?.let { hideErrorPanel() }
         cursor.cancelDragIfTargetChanged()
         if (pageLoading && (!tabManager.hasTabs || loadingEngine !== engine)) setLoadingUi(false)
@@ -1108,6 +1122,9 @@ open class BrowserActivity : AppCompatActivity() {
     private fun showTabSwitcher() {
         hideSoftKeyboard()
         cursor.setActive(false)
+        // The switcher takes focus from the address bar on purpose; without this the address bar's
+        // focus-loss handler would move focus on to the ⋮ button behind the overlay.
+        addressBarActive = false
         binding.tabSwitcherOverlay.visibility = View.VISIBLE
         rebuildTabSwitcher()
     }
@@ -1534,10 +1551,15 @@ open class BrowserActivity : AppCompatActivity() {
         val running = row.status in setOf(
             DownloadManager.STATUS_RUNNING, DownloadManager.STATUS_PENDING, DownloadManager.STATUS_PAUSED
         )
-        if (!running) {
-            actions += getString(R.string.dl_remove_from_list) to { hiddenDownloads.hide(row.id) }
+        if (row.status == DownloadManager.STATUS_FAILED) {
+            // A failed download left no file, so there is nothing to keep or delete.
+            actions += getString(R.string.dl_remove_failed) to { dm.remove(row.id); hiddenDownloads.forget(row.id); Unit }
+        } else {
+            if (!running) {
+                actions += getString(R.string.dl_remove_from_list) to { hiddenDownloads.hide(row.id) }
+            }
+            actions += getString(R.string.dl_delete_file) to { confirmDeleteDownload(dm, row) }
         }
-        actions += getString(R.string.dl_delete_file) to { confirmDeleteDownload(dm, row) }
         AlertDialog.Builder(this)
             .setTitle(row.title)
             .setItems(actions.map { it.first }.toTypedArray()) { _, which -> actions[which].second() }

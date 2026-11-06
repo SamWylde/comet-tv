@@ -245,6 +245,9 @@ class WebViewEngine(
 
     override fun captureThumbnail(width: Int, height: Int): Bitmap? {
         if (width <= 0 || height <= 0 || webView.width <= 0 || webView.height <= 0) return null
+        // A new tab shows Home over a blank page; a white picture of that tells the user nothing.
+        val url = webView.url
+        if (url.isNullOrBlank() || url == "about:blank") return null
         return runCatching {
             Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565).also { bitmap ->
                 val canvas = Canvas(bitmap)
