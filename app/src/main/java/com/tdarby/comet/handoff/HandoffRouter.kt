@@ -155,7 +155,8 @@ class HandoffRouter(
             HandoffResponse.html(status, HandoffPages.backupPage(session.token, error))
         val content = when (val part = MultipartFile.parse(request.headers["content-type"], request.body)) {
             MultipartFile.Result.Invalid -> return again(400, NOT_A_BACKUP)
-            MultipartFile.Result.NoFile -> return again(400, "Choose a file first.")
+            // The file input is required, so a browser sends an empty part only for an empty file.
+            MultipartFile.Result.NoFile -> return again(400, "That file is empty. Choose a Comet bookmarks file.")
             is MultipartFile.Result.File -> part.content
         }
         if (content.size > BookmarkTransfer.MAX_FILE_BYTES) {

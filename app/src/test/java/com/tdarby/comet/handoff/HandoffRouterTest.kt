@@ -73,7 +73,7 @@ class HandoffRouterTest {
         received = null
         val refused = listOf(
             Triple("{\"hello\":1}", 400, "That isn&#39;t a Comet bookmarks file."),
-            Triple("", 400, "Choose a file first."),
+            Triple("", 400, "That file is empty. Choose a Comet bookmarks file."),
             Triple("x".repeat(BookmarkTransfer.MAX_FILE_BYTES + 1), 413, "That file is too big for a bookmarks backup (limit 1 MB).")
         )
         for ((content, status, message) in refused) {
