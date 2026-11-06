@@ -135,7 +135,7 @@
     <string name="bookmarks_export_failed">Couldn’t save the bookmarks file</string>
     <string name="bookmarks_import_none">No Comet bookmark files in Downloads. Export bookmarks first, or copy a backup into Downloads.</string>
     <!-- Android 10 and later, on a TV with no file picker: other apps' files in Downloads can't be seen. -->
-    <string name="bookmarks_import_none_own">No Comet bookmark files in Downloads. This TV has no file picker, so Comet can only open backups it exported itself since it was installed.</string>
+    <string name="bookmarks_import_none_own">No Comet bookmark files in Downloads. This TV has no file picker, so Comet can only open backups it exported itself since it was installed. To restore another backup, choose Send from phone in the menu.</string>
     <string name="bookmarks_import_failed">Couldn’t read that file</string>
     <string name="bookmarks_import_invalid">That isn’t a Comet bookmarks file</string>
     <string name="bookmarks_import_too_large">That file is too big to be a bookmarks backup (limit 1 MB)</string>
@@ -271,4 +271,8 @@
     <string name="video_play_blocked">The video didn’t start. Try the site’s own play button.</string>
     <string name="video_failed">The video didn’t respond</string>
     <string name="video_controls_description">Video controls</string>
+    <!-- w9-backup: bookmark backup from phone -->
+    <string name="handoff_import_title">Bookmarks from your phone</string>
+    <string name="handoff_import_message">Add the bookmarks in this file? Bookmarks in the file: %1$d. Your current bookmarks are kept.</string>
+    <string name="handoff_import_action">Import</string>
 </resources>

@@ -143,7 +143,7 @@ error instead of producing an unsigned APK. Outputs:
   origin-scoped camera/microphone/location permissions, and hardened fullscreen/popup handling
 - [x] M10 (v1.3.0) — D-pad video controls in fullscreen (play/pause, ±10 s, speed, live streams,
   players inside frames from other sites), Continue watching, Send from phone (QR code + 6-digit
-  code, the TV confirms before opening), a This site panel (identity, viewport, text size, remote
+  code, the TV confirms before opening; also saves and restores bookmark backups), a This site panel (identity, viewport, text size, remote
   mode, blocking pauses, blocked list), remote-button shortcuts, remote help, drag mode, Link
   options for remotes without long-press, a Stop button, reopen closed tab, a memory budget that
   suspends background tabs with thumbnails, bookmark organise/export/import, clearer download

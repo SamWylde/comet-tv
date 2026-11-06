@@ -7,7 +7,7 @@ import java.util.Base64
 object HandoffPages {
     private const val CSS =
         "body{font:18px/1.4 system-ui,sans-serif;margin:0;padding:20px;background:#111;color:#eee}" +
-            "main{max-width:30em;margin:0 auto}h1{font-size:1.4em}" +
+            "main{max-width:30em;margin:0 auto}h1{font-size:1.4em}h2{font-size:1.15em}" +
             "input{box-sizing:border-box;width:100%;font:inherit;padding:12px;margin:8px 0 16px;" +
             "border-radius:8px;border:1px solid #555;background:#222;color:#eee}" +
             "button{font:inherit;width:100%;padding:14px;border:0;border-radius:8px;" +
@@ -39,14 +39,36 @@ object HandoffPages {
             "<button type=\"submit\">Continue</button></form>"
     )
 
-    fun sendPage(token: String, error: String? = null): String = page(
+    fun sendPage(token: String, error: String? = null, backupLink: Boolean = false): String = page(
         "<h1>Send to Comet</h1><p>Type a web address or something to search for.</p>" +
             errorLine(error) +
             "<form method=\"post\" action=\"/t/${escape(token)}\">" +
             "<input type=\"text\" name=\"text\" maxlength=\"${HandoffInput.MAX_CHARS}\" " +
             "placeholder=\"Web address or search\" autocomplete=\"off\" autocapitalize=\"off\" " +
             "autocorrect=\"off\" spellcheck=\"false\" autofocus required>" +
-            "<button type=\"submit\">Send</button></form>"
+            "<button type=\"submit\">Send</button></form>" +
+            if (backupLink) {
+                "<p><a href=\"/t/${escape(token)}/bookmarks\">Bookmark backup</a>: " +
+                    "save this TV's bookmarks on your phone, or send a backup to the TV.</p>"
+            } else ""
+    )
+
+    fun backupPage(token: String, error: String? = null): String = page(
+        "<h1>Bookmark backup</h1>" +
+            "<h2>Save on your phone</h2><p><a href=\"/t/${escape(token)}/bookmarks.json\">" +
+            "Download this TV's bookmarks</a> as a Comet backup file.</p>" +
+            "<h2>Send to the TV</h2><p>Choose a Comet bookmarks file. The TV asks before adding anything " +
+            "and keeps the bookmarks it already has.</p>" +
+            errorLine(error) +
+            "<form method=\"post\" action=\"/t/${escape(token)}/bookmarks\" enctype=\"multipart/form-data\">" +
+            "<input type=\"file\" name=\"file\" required>" +
+            "<button type=\"submit\">Send to TV</button></form>" +
+            "<p><a href=\"/t/${escape(token)}\">Back</a></p>"
+    )
+
+    fun backupSentPage(token: String): String = page(
+        "<h1 class=\"ok\">Sent</h1><p>Check the TV: it asks before adding these bookmarks.</p>" +
+            "<p><a href=\"/t/${escape(token)}/bookmarks\">Back</a></p>"
     )
 
     fun sentPage(token: String, text: String): String = page(

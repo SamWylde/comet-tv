@@ -102,7 +102,13 @@ class HandoffServer(
         try {
             client.soTimeout = READ_TIMEOUT_MS
             val input = DeadlineInputStream(client.getInputStream(), CONNECTION_DEADLINE_MS)
-            val response = when (val parsed = HandoffRequestParser.parse(input)) {
+            val limit = { method: String, path: String ->
+                val bytes = router.bodyLimit(method, path)
+                // A bigger body is allowed only on the upload route with a valid token: give it more time too.
+                if (bytes > HandoffRequestParser.MAX_BODY_BYTES) input.extendBudget(UPLOAD_DEADLINE_MS)
+                bytes
+            }
+            val response = when (val parsed = HandoffRequestParser.parse(input, limit)) {
                 is ParseResult.Ok -> router.handle(parsed.request)
                 is ParseResult.Rejected -> HandoffResponse.error(parsed.status)
                 ParseResult.NoRequest -> null
@@ -161,7 +167,15 @@ class HandoffServer(
 
     /** Bounds the whole request, not just each read, so a client can't trickle bytes forever. */
     private class DeadlineInputStream(private val inner: InputStream, budgetMs: Long) : InputStream() {
-        private val deadline = System.nanoTime() + budgetMs * 1_000_000
+        private val startedAt = System.nanoTime()
+
+        @Volatile
+        private var deadline = startedAt + budgetMs * 1_000_000
+
+        /** Moves the deadline to [budgetMs] after the request began (for the one route that takes longer). */
+        fun extendBudget(budgetMs: Long) {
+            deadline = startedAt + budgetMs * 1_000_000
+        }
 
         override fun read(): Int {
             check()
@@ -183,6 +197,7 @@ class HandoffServer(
         const val BACKLOG = 4
         const val READ_TIMEOUT_MS = 5_000
         const val CONNECTION_DEADLINE_MS = 10_000L
+        const val UPLOAD_DEADLINE_MS = 30_000L
         const val ACCEPT_POLL_MS = 1_000
     }
 }

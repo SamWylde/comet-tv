@@ -10,8 +10,13 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.tdarby.comet.R
+import com.tdarby.comet.data.SiteItem
+import com.tdarby.comet.ui.BookmarkFiles
 import com.tdarby.comet.util.UrlUtils
 import java.net.Inet4Address
+import java.util.concurrent.Callable
+import java.util.concurrent.FutureTask
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -23,6 +28,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 class HandoffController(
     private val activity: AppCompatActivity,
     private val searchTemplate: () -> String,
+    /** Reads the bookmarks (called on the main thread). Null, with [onImportBookmarks] null, means no backup routes. */
+    private val bookmarks: (() -> List<SiteItem>)? = null,
+    /** Adds the bookmarks of a backup the user accepted on the TV: the items and the count dropped as malformed. */
+    private val onImportBookmarks: ((List<SiteItem>, Int) -> Unit)? = null,
     private val onOpen: (String) -> Unit
 ) {
     private val main = Handler(Looper.getMainLooper())
@@ -51,7 +60,7 @@ class HandoffController(
             return
         }
         val session = HandoffSession.generate()
-        val router = HandoffRouter(session, ::receive)
+        val router = HandoffRouter(session, backupHooks(), ::receive)
         val srv = HandoffServer(lan, session, router, object : HandoffServer.Listener {
             override fun onReady(port: Int) {
                 main.post { if (!closed) showReady(lan, port, session) }
@@ -161,6 +170,55 @@ class HandoffController(
         return SendOutcome.ACCEPTED
     }
 
+    private fun backupHooks(): HandoffBackup? {
+        val read = bookmarks ?: return null
+        val import = onImportBookmarks ?: return null
+        return HandoffBackup(
+            bookmarks = { readOnMain(read) },
+            fileName = { BookmarkFiles.newFileName() },
+            exportedAt = { BookmarkFiles.isoDate() },
+            receive = { items, skipped -> receiveBackup(items, skipped, import) }
+        )
+    }
+
+    /** Runs [read] on the main thread (the store is touched there only) and waits briefly; null on a timeout. */
+    private fun readOnMain(read: () -> List<SiteItem>): List<SiteItem>? {
+        val task = FutureTask(Callable { read().toList() })
+        main.post(task)
+        return try {
+            task.get(MAIN_READ_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        } catch (_: Exception) {
+            task.cancel(false)
+            null
+        }
+    }
+
+    /** Called on a server thread with a backup that already passed [BookmarkTransfer]. */
+    private fun receiveBackup(
+        items: List<SiteItem>,
+        skipped: Int,
+        import: (List<SiteItem>, Int) -> Unit
+    ): SendOutcome {
+        if (closed) return SendOutcome.CLOSED
+        if (!asking.compareAndSet(false, true)) return SendOutcome.BUSY
+        main.post { confirmImport(items, skipped, import) }
+        return SendOutcome.ACCEPTED
+    }
+
+    private fun confirmImport(items: List<SiteItem>, skipped: Int, import: (List<SiteItem>, Int) -> Unit) {
+        if (closed) return
+        confirmDialog = AlertDialog.Builder(activity)
+            .setTitle(R.string.handoff_import_title)
+            .setMessage(activity.getString(R.string.handoff_import_message, items.size))
+            .setPositiveButton(R.string.handoff_import_action) { _, _ -> import(items, skipped) }
+            .setNegativeButton(R.string.action_cancel, null)
+            .setOnDismissListener {
+                confirmDialog = null
+                asking.set(false)
+            }
+            .show()
+    }
+
     private fun confirm(text: String) {
         if (closed) return
         val target = UrlUtils.toUrlOrSearch(text, searchTemplate())
@@ -183,5 +241,6 @@ class HandoffController(
 
     private companion object {
         const val MAX_SHOWN_CHARS = 300
+        const val MAIN_READ_TIMEOUT_MS = 2_000L
     }
 }

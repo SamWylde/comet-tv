@@ -74,6 +74,7 @@ import com.tdarby.comet.engine.WebViewEngine
 import com.tdarby.comet.data.BookmarkTransfer
 import com.tdarby.comet.handoff.HandoffController
 import com.tdarby.comet.data.BrowserStore
+import com.tdarby.comet.data.SiteItem
 import com.tdarby.comet.data.TabsStore
 import com.tdarby.comet.data.PlaybackResumePolicy
 import com.tdarby.comet.data.PlaybackResumeStore
@@ -893,7 +894,13 @@ open class BrowserActivity : AppCompatActivity() {
 
     private fun showSendFromPhone() {
         handoff?.close()
-        handoff = HandoffController(this, { searchTemplate }) { url ->
+        // Bookmark backups are off in a private window: no routes, no link on the phone page.
+        val backups = !isIncognito
+        handoff = HandoffController(
+            this, { searchTemplate },
+            bookmarks = if (backups) ({ store.bookmarks.toList() }) else null,
+            onImportBookmarks = if (backups) ::addImportedBookmarks else null
+        ) { url ->
             if (isFullscreen) exitFullscreen?.invoke()
             tabManager.newTab(url)
         }.also { it.show() }
@@ -1434,17 +1441,20 @@ open class BrowserActivity : AppCompatActivity() {
                     if (parsed.reason == BookmarkTransfer.Failure.TOO_LARGE) R.string.bookmarks_import_too_large
                     else R.string.bookmarks_import_invalid
                 )
-                is BookmarkTransfer.Parsed.Ok -> {
-                    val merge = store.importBookmarks(parsed.items)
-                    onBookmarksChanged()
-                    val skipped = parsed.skipped + merge.overLimit
-                    longToast(
-                        getString(R.string.bookmarks_import_result, merge.added, merge.alreadySaved) +
-                            if (skipped > 0) getString(R.string.bookmarks_import_skipped, skipped) else ""
-                    )
-                }
+                is BookmarkTransfer.Parsed.Ok -> addImportedBookmarks(parsed.items, parsed.skipped)
             }
         }
+    }
+
+    /** Merges bookmarks from a backup into the saved list and says what happened. [skippedInFile] counts entries the file lost. */
+    private fun addImportedBookmarks(items: List<SiteItem>, skippedInFile: Int) {
+        val merge = store.importBookmarks(items)
+        onBookmarksChanged()
+        val skipped = skippedInFile + merge.overLimit
+        longToast(
+            getString(R.string.bookmarks_import_result, merge.added, merge.alreadySaved) +
+                if (skipped > 0) getString(R.string.bookmarks_import_skipped, skipped) else ""
+        )
     }
 
     private fun showHistory() {

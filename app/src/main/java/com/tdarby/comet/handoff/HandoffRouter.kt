@@ -1,17 +1,34 @@
 package com.tdarby.comet.handoff
 
-/** What the TV did with a submitted link. */
+import com.tdarby.comet.data.BookmarkTransfer
+import com.tdarby.comet.data.SiteItem
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
+
+/** What the TV did with a submitted link or backup. */
 enum class SendOutcome { ACCEPTED, BUSY, CLOSED }
+
+/** What the TV offers for bookmark backups. The functions run on server threads. */
+class HandoffBackup(
+    /** This TV's bookmarks, read on the TV's main thread; null when that did not happen in time. */
+    val bookmarks: () -> List<SiteItem>?,
+    val fileName: () -> String,
+    val exportedAt: () -> String,
+    /** Hands a parsed backup (its bookmarks and the count of entries dropped as malformed) to the TV. */
+    val receive: (List<SiteItem>, Int) -> SendOutcome
+)
 
 class HandoffResponse(
     val status: Int,
     val headers: Map<String, String> = emptyMap(),
-    val body: ByteArray = ByteArray(0)
+    val body: ByteArray = ByteArray(0),
+    val contentType: String = "text/html; charset=utf-8"
 ) {
     fun toBytes(): ByteArray {
         val head = buildString {
             append("HTTP/1.1 ").append(status).append(' ').append(reason(status)).append("\r\n")
-            append("Content-Type: text/html; charset=utf-8\r\n")
+            append("Content-Type: ").append(contentType).append("\r\n")
             append("Content-Length: ").append(body.size).append("\r\n")
             append("Cache-Control: no-store\r\n")
             append("Content-Security-Policy: ").append(HandoffPages.contentSecurityPolicy).append("\r\n")
@@ -56,12 +73,28 @@ class HandoffResponse(
 /**
  * Routes: `GET /` and `POST /` (the code), `GET /t/<token>` and `POST /t/<token>` (the send form).
  * Everything else is 404, or 405 when the path exists but the method doesn't. [send] hands an
- * accepted text to the TV.
+ * accepted text to the TV. With a [backup] there are also `/t/<token>/bookmarks` (GET the page, POST
+ * a backup file) and `GET /t/<token>/bookmarks.json`; without one those are 404 like any other path.
  */
 class HandoffRouter(
     private val session: HandoffSession,
+    private val backup: HandoffBackup? = null,
     private val send: (String) -> SendOutcome
 ) {
+    /**
+     * The largest request body the server may read for this method and path. Only an upload of a
+     * backup to a path that carries the right token gets more than the ordinary limit; the decision
+     * is made from the request line, before any body is read.
+     */
+    fun bodyLimit(method: String, path: String): Int {
+        if (backup != null && method == "POST" && path.startsWith(TOKEN_PREFIX) && path.endsWith(BOOKMARKS_SUFFIX) &&
+            session.tokenMatches(path.substring(TOKEN_PREFIX.length, path.length - BOOKMARKS_SUFFIX.length))
+        ) {
+            return UPLOAD_BODY_LIMIT
+        }
+        return HandoffRequestParser.MAX_BODY_BYTES
+    }
+
     fun handle(request: HandoffRequest): HandoffResponse {
         when (session.state) {
             HandoffSession.State.EXPIRED ->
@@ -78,14 +111,81 @@ class HandoffRouter(
                 else -> methodNotAllowed()
             }
         }
-        if (path.startsWith(TOKEN_PREFIX) && session.tokenMatches(path.removePrefix(TOKEN_PREFIX))) {
-            return when (request.method) {
-                "GET" -> HandoffResponse.html(200, HandoffPages.sendPage(session.token))
-                "POST" -> submitText(request)
-                else -> methodNotAllowed()
+        if (path.startsWith(TOKEN_PREFIX)) {
+            val rest = path.removePrefix(TOKEN_PREFIX)
+            val slash = rest.indexOf('/')
+            val tokenPart = if (slash < 0) rest else rest.substring(0, slash)
+            val subPath = if (slash < 0) "" else rest.substring(slash)
+            if (session.tokenMatches(tokenPart)) {
+                when {
+                    subPath.isEmpty() -> return when (request.method) {
+                        "GET" -> HandoffResponse.html(200, HandoffPages.sendPage(session.token, backupLink = backup != null))
+                        "POST" -> submitText(request)
+                        else -> methodNotAllowed()
+                    }
+                    backup != null && subPath == BOOKMARKS_SUFFIX -> return when (request.method) {
+                        "GET" -> HandoffResponse.html(200, HandoffPages.backupPage(session.token))
+                        "POST" -> submitBackup(request, backup)
+                        else -> methodNotAllowed()
+                    }
+                    backup != null && subPath == BOOKMARKS_JSON_SUFFIX -> return when (request.method) {
+                        "GET" -> downloadBackup(backup)
+                        else -> methodNotAllowed("GET")
+                    }
+                }
             }
         }
         return message(404, "Not found", "Nothing here.")
+    }
+
+    private fun downloadBackup(backup: HandoffBackup): HandoffResponse {
+        val list = backup.bookmarks()
+            ?: return message(503, "Try again", "The TV didn't answer in time. Try again in a moment.")
+        if (list.isEmpty()) return message(200, "No bookmarks yet", "This TV has no bookmarks to save.")
+        return HandoffResponse(
+            200,
+            mapOf("Content-Disposition" to "attachment; filename=\"${backup.fileName()}\""),
+            BookmarkTransfer.export(list, backup.exportedAt()).toByteArray(Charsets.UTF_8),
+            "application/json; charset=utf-8"
+        )
+    }
+
+    private fun submitBackup(request: HandoffRequest, backup: HandoffBackup): HandoffResponse {
+        fun again(status: Int, error: String) =
+            HandoffResponse.html(status, HandoffPages.backupPage(session.token, error))
+        val content = when (val part = MultipartFile.parse(request.headers["content-type"], request.body)) {
+            MultipartFile.Result.Invalid -> return again(400, NOT_A_BACKUP)
+            MultipartFile.Result.NoFile -> return again(400, "Choose a file first.")
+            is MultipartFile.Result.File -> part.content
+        }
+        if (content.size > BookmarkTransfer.MAX_FILE_BYTES) {
+            return again(413, "That file is too big for a bookmarks backup (limit 1 MB).")
+        }
+        val text = decodeUtf8(content) ?: return again(400, NOT_A_BACKUP)
+        return when (val parsed = BookmarkTransfer.parse(text.removePrefix("﻿"), content.size)) {
+            is BookmarkTransfer.Parsed.Rejected -> when (parsed.reason) {
+                BookmarkTransfer.Failure.TOO_LARGE -> again(413, "That file is too big for a bookmarks backup (limit 1 MB).")
+                BookmarkTransfer.Failure.NOT_A_BOOKMARK_FILE -> again(400, NOT_A_BACKUP)
+            }
+            is BookmarkTransfer.Parsed.Ok -> when (backup.receive(parsed.items, parsed.skipped)) {
+                SendOutcome.ACCEPTED -> HandoffResponse.html(200, HandoffPages.backupSentPage(session.token))
+                SendOutcome.BUSY -> again(
+                    429,
+                    "The TV is still asking about the last thing you sent. Try again in a moment."
+                )
+                SendOutcome.CLOSED -> message(410, "Session ended", "This session ended. Start a new one on the TV.")
+            }
+        }
+    }
+
+    private fun decodeUtf8(bytes: ByteArray): String? = try {
+        Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes))
+            .toString()
+    } catch (_: CharacterCodingException) {
+        null
     }
 
     private fun submitCode(request: HandoffRequest): HandoffResponse {
@@ -144,13 +244,23 @@ class HandoffRouter(
         HandoffInput.Problem.UNSUPPORTED_SCHEME -> "Only http and https links can be sent."
     }
 
-    private fun methodNotAllowed() =
-        HandoffResponse.html(405, HandoffPages.messagePage("Method not allowed", "Use GET or POST."), mapOf("Allow" to "GET, POST"))
+    private fun methodNotAllowed(allow: String = "GET, POST") =
+        HandoffResponse.html(
+            405,
+            HandoffPages.messagePage("Method not allowed", if (allow == "GET") "Use GET." else "Use GET or POST."),
+            mapOf("Allow" to allow)
+        )
 
     private fun message(status: Int, title: String, text: String) =
         HandoffResponse.html(status, HandoffPages.messagePage(title, text))
 
     private companion object {
         const val TOKEN_PREFIX = "/t/"
+        const val BOOKMARKS_SUFFIX = "/bookmarks"
+        const val BOOKMARKS_JSON_SUFFIX = "/bookmarks.json"
+        const val NOT_A_BACKUP = "That isn't a Comet bookmarks file."
+
+        /** The largest backup file, plus room for the multipart framing around it. */
+        const val UPLOAD_BODY_LIMIT = BookmarkTransfer.MAX_FILE_BYTES + 16 * 1024
     }
 }

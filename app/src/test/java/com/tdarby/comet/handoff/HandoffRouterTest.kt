@@ -1,5 +1,7 @@
 package com.tdarby.comet.handoff
 
+import com.tdarby.comet.data.BookmarkTransfer
+import com.tdarby.comet.data.SiteItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -24,6 +26,103 @@ class HandoffRouterTest {
         router.handle(HandoffRequest("POST", path, headers, body.toByteArray()))
 
     private fun text(r: HandoffResponse) = String(r.body, Charsets.UTF_8)
+
+    private val saved = listOf(SiteItem("Example", "https://example.com/"), SiteItem("Two", "https://two.example/a"))
+    private var tvBookmarks: List<SiteItem>? = saved
+    private var received: Pair<List<SiteItem>, Int>? = null
+    private var backupOutcome = SendOutcome.ACCEPTED
+    private val backup = HandoffBackup(
+        bookmarks = { tvBookmarks },
+        fileName = { "comet-bookmarks-test.json" },
+        exportedAt = { "2026-11-06T10:00:00Z" },
+        receive = { items, skipped -> received = items to skipped; backupOutcome }
+    )
+    private val backupRouter = HandoffRouter(session, backup) { text -> sent += text; outcome }
+
+    private fun upload(content: String, path: String = "/t/$token/bookmarks", r: HandoffRouter = backupRouter) =
+        r.handle(HandoffRequest("POST", path, mapOf("content-type" to MULTIPART_TYPE), multipartFile(content)))
+
+    private fun backupGet(path: String) = backupRouter.handle(HandoffRequest("GET", path, emptyMap(), ByteArray(0)))
+
+    @Test
+    fun theTvsBookmarksCanBeSavedOnThePhone() {
+        val r = backupGet("/t/$token/bookmarks.json")
+        assertEquals(200, r.status)
+        assertEquals("application/json; charset=utf-8", r.contentType)
+        assertEquals("attachment; filename=\"comet-bookmarks-test.json\"", r.headers["Content-Disposition"])
+        assertEquals(BookmarkTransfer.export(saved, "2026-11-06T10:00:00Z"), text(r))
+        val head = String(r.toBytes(), Charsets.ISO_8859_1).substringBefore("\r\n\r\n")
+        assertTrue(head.contains("Content-Type: application/json; charset=utf-8"))
+        assertTrue(head.contains("X-Content-Type-Options: nosniff"))
+        assertTrue(head.contains("Content-Security-Policy: default-src 'none';"))
+
+        tvBookmarks = emptyList()
+        assertTrue(text(backupGet("/t/$token/bookmarks.json")).contains("This TV has no bookmarks to save."))
+        tvBookmarks = null
+        assertEquals(503, backupGet("/t/$token/bookmarks.json").status)
+    }
+
+    @Test
+    fun aBackupSentFromThePhoneReachesTheTvOnlyWhenItIsOne() {
+        val file = BookmarkTransfer.export(saved + SiteItem("Bad", "ftp://x"), "2026-11-06T10:00:00Z")
+        val ok = upload(file)
+        assertEquals(200, ok.status)
+        assertTrue(text(ok).contains("Check the TV: it asks before adding these bookmarks."))
+        assertEquals(saved to 1, received)
+
+        received = null
+        val refused = listOf(
+            Triple("{\"hello\":1}", 400, "That isn&#39;t a Comet bookmarks file."),
+            Triple("", 400, "Choose a file first."),
+            Triple("x".repeat(BookmarkTransfer.MAX_FILE_BYTES + 1), 413, "That file is too big for a bookmarks backup (limit 1 MB).")
+        )
+        for ((content, status, message) in refused) {
+            val r = upload(content)
+            assertEquals(content.take(20), status, r.status)
+            assertTrue(text(r).contains(message))
+        }
+        assertNull(received)
+
+        backupOutcome = SendOutcome.BUSY
+        assertEquals(429, upload(file).status)
+        backupOutcome = SendOutcome.CLOSED
+        assertEquals(410, upload(file).status)
+    }
+
+    @Test
+    fun theBackupRoutesNeedTheTokenAndAreAbsentWithoutBackups() {
+        val wrong = "/t/${token.dropLast(1)}0"
+        assertEquals(404, backupGet("$wrong/bookmarks").status)
+        assertEquals(404, backupGet("$wrong/bookmarks.json").status)
+        assertEquals(404, upload(BookmarkTransfer.export(saved, "x"), "$wrong/bookmarks").status)
+        assertNull(received)
+
+        assertTrue(text(backupGet("/t/$token")).contains("<a href=\"/t/$token/bookmarks\">Bookmark backup</a>"))
+        // No backups (a private window): no link, and all three routes are 404.
+        assertFalse(text(get("/t/$token")).contains("/bookmarks"))
+        assertEquals(404, get("/t/$token/bookmarks").status)
+        assertEquals(404, get("/t/$token/bookmarks.json").status)
+        assertEquals(404, upload(BookmarkTransfer.export(saved, "x"), r = router).status)
+    }
+
+    @Test
+    fun onlyAnUploadWithTheRightTokenMayBeBiggerThanFourKilobytes() {
+        val ordinary = HandoffRequestParser.MAX_BODY_BYTES
+        val cases = listOf(
+            Triple("POST", "/t/$token/bookmarks", true),
+            Triple("POST", "/t/${token.dropLast(1)}0/bookmarks", false),
+            Triple("POST", "/t//bookmarks", false),
+            Triple("GET", "/t/$token/bookmarks", false),
+            Triple("POST", "/t/$token", false),
+            Triple("POST", "/t/$token/bookmarks.json", false),
+            Triple("POST", "/", false)
+        )
+        for ((method, path, big) in cases) {
+            assertEquals("$method $path", big, backupRouter.bodyLimit(method, path) > ordinary)
+            assertEquals("no backups: $method $path", ordinary, router.bodyLimit(method, path))
+        }
+        assertTrue(backupRouter.bodyLimit("POST", "/t/$token/bookmarks") >= BookmarkTransfer.MAX_FILE_BYTES + 16 * 1024)
+    }
 
     @Test
     fun typingTheAddressAsksForTheCodeThenLeadsToTheSendForm() {
