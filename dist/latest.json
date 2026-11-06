@@ -1,10 +1,10 @@
 {
   "webview": {
-    "versionCode": 14,
-    "versionName": "1.2.0",
-    "apkUrl": "https://github.com/SamWylde/comet-tv/releases/download/v1.2.0/app-webview-universal-release.apk",
-    "sha256": "9e64be715a742de00ae3c1b720928d44eea08033e4296a2f20c4f01c56593ec2",
-    "notes": "Stability and privacy fixes: private tabs block ads and clear data a closed private session left behind; page downloads save reliably and failed downloads say why; Play and Pause keys work correctly, including in embedded videos; links from other apps open in a new tab without losing your tabs; sites' own error pages show instead of Comet's; settings and tabs are saved safely; ad-block filter updates are checked before use.",
+    "versionCode": 15,
+    "versionName": "1.3.0",
+    "apkUrl": "https://github.com/SamWylde/comet-tv/releases/download/v1.3.0/app-webview-universal-release.apk",
+    "sha256": "592118ee2249257041319184189a15ca58ec5b868eab58862da73b0dc889753c",
+    "notes": "D-pad video controls; continue watching for long videos; send a link from your phone with a QR code, and back up or restore bookmarks the same way; a This site panel for per-site text size, cursor mode and blocking; rename, reorder, export and import bookmarks; assign spare remote buttons; drag mode; background tabs unload to save memory and a closed tab can be reopened; a guided update dialog; removing a download from the list keeps the file.",
     "required": false
   }
 }
