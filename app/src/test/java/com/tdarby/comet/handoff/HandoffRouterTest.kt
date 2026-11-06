@@ -70,6 +70,11 @@ class HandoffRouterTest {
         assertTrue(text(ok).contains("Check the TV: it asks before adding these bookmarks."))
         assertEquals(saved to 1, received)
 
+        // A file saved by an editor that starts it with a byte-order mark (Windows Notepad) is still a backup.
+        received = null
+        assertEquals(200, upload("${Char(0xFEFF)}$file").status)
+        assertEquals(saved to 1, received)
+
         received = null
         val refused = listOf(
             Triple("{\"hello\":1}", 400, "That isn&#39;t a Comet bookmarks file."),

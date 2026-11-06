@@ -163,7 +163,7 @@ class HandoffRouter(
             return again(413, "That file is too big for a bookmarks backup (limit 1 MB).")
         }
         val text = decodeUtf8(content) ?: return again(400, NOT_A_BACKUP)
-        return when (val parsed = BookmarkTransfer.parse(text.removePrefix("﻿"), content.size)) {
+        return when (val parsed = BookmarkTransfer.parse(text.removePrefix("\uFEFF"), content.size)) {
             is BookmarkTransfer.Parsed.Rejected -> when (parsed.reason) {
                 BookmarkTransfer.Failure.TOO_LARGE -> again(413, "That file is too big for a bookmarks backup (limit 1 MB).")
                 BookmarkTransfer.Failure.NOT_A_BOOKMARK_FILE -> again(400, NOT_A_BACKUP)
