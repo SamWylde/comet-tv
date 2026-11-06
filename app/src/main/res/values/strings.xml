@@ -271,7 +271,7 @@
     <string name="video_play_blocked">The video didn’t start. Try the site’s own play button.</string>
     <string name="video_failed">The video didn’t respond</string>
     <string name="video_controls_description">Video controls</string>
-    <!-- w9-backup: bookmark backup from phone -->
+    <!-- Send from phone: the TV asks before adding bookmarks from a backup the phone sent. -->
     <string name="handoff_import_title">Bookmarks from your phone</string>
     <string name="handoff_import_message">Add the bookmarks in this file? Bookmarks in the file: %1$d. Your current bookmarks are kept.</string>
     <string name="handoff_import_action">Import</string>

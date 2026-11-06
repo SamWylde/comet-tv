@@ -140,7 +140,7 @@ class HandoffRouter(
 
     private fun downloadBackup(backup: HandoffBackup): HandoffResponse {
         val list = backup.bookmarks()
-            ?: return message(503, "Try again", "The TV didn't answer in time. Try again in a moment.")
+            ?: return message(503, "TV busy", "Comet on the TV couldn't read its bookmarks in time. Try again in a moment.")
         if (list.isEmpty()) return message(200, "No bookmarks yet", "This TV has no bookmarks to save.")
         return HandoffResponse(
             200,
